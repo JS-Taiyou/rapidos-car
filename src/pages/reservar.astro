@@ -1,0 +1,76 @@
+---
+// ============================================================================
+// PÁGINA: Reservar ES (/reservar) — estática + isla BookingFlow
+// ============================================================================
+// PROPÓSITO: hospedar el motor de reservación. La página es un cascarón
+// estático; TODA la interacción vive en la isla BookingFlow (su guía está
+// en src/components/react/booking/BookingFlow.tsx).
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * Estática + client:load: el HTML (título, SEO, fallback) es inmutable y
+//   se sirve gratis; la isla se hidrata inmediatamente porque ES el
+//   contenido de la página — mismo criterio que QuoteWidget en la home
+//   (ARCHITECTURE §2.1, §2.2). client:idle/client:visible retrasarían el
+//   embudo principal.
+// * <noscript> CRÍTICO con link directo de WhatsApp: el negocio es
+//   WhatsApp-nativo (spec §3.6) y el funnel NO puede morir si falla el JS
+//   (4G inestable, extensiones, WebViews viejos). Sin JS, el usuario cae en
+//   wa.me con mensaje pre-llenado y el staff cierra por chat — venta
+//   rescatada. El href se arma en el frontmatter con buildWhatsAppUrl (es
+//   puro, funciona en servidor).
+// * Wrapper con min-height alrededor de la isla: BookingFlow renderiza en
+//   cliente; sin reservar altura, el contenido salta al hidratar (CLS,
+//   spec §6). Un min-h razonable (p.ej. 32rem) + el skeleton interno de la
+//   isla cubre el salto.
+// * Query params de entrada: QuoteWidget y /flota/[slug] llegan con
+//   ?start&end&zone (&model opcional). BookingFlow los lee SOLO — esta
+//   página NO los procesa: la URL es el estado compartible (ver la guía de
+//   BookingFlow) y duplicar el parsing crearía dos fuentes de verdad.
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. Imports: BaseLayout ('../layouts/BaseLayout.astro'), BookingFlow de
+//    '../components/react/booking/BookingFlow', useTranslations de
+//    '../i18n/utils', buildWhatsAppUrl de '../lib/whatsapp'.
+// 2. Frontmatter: const t = useTranslations('es'); const whatsappFallback =
+//    buildWhatsAppUrl(t('booking.noscriptMessage')) — mensaje genérico
+//    ("Hola, quiero reservar un auto"); fechas y auto se piden por chat.
+// 3. SEO: title t('booking.pageTitle') y description t('booking.pageDesc')
+//    — redactar en ui.ts algo como "Reserva tu auto en Mérida: precio final
+//    con seguro incluido y entrega en el aeropuerto MID. Cotiza en 1
+//    minuto." alternateUrl="/en/book".
+// 4. Template:
+//    a. Encabezado estático: <h1> + resumen de los pasos del wizard
+//       (t('booking.steps.*')) — contenido indexable aunque la isla tarde.
+//    b. <div class="min-h-[32rem]"> envolviendo
+//       <BookingFlow client:load lang="es" />.
+//    c. <noscript> con aviso + <a href={whatsappFallback}> como botón
+//       WhatsApp. Coherencia: si /api/quote falla, la isla muestra este
+//       mismo link como fallback de error (ver guía de BookingFlow).
+//    d. Notas de confianza bajo la isla: seguro incluido, política de
+//       cancelación, contacto visible (t('booking.trust.*')).
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Consume: BaseLayout, BookingFlow (props { lang }), i18n, whatsapp.ts.
+// No expone nada. Espejo EN: /en/book con lang="en" y
+// alternateUrl="/reservar".
+//
+// ERRORES COMUNES
+// - Olvidar el <noscript> → funnel muerto sin JS (spec §3.6: inaceptable).
+// - Sin min-height → CLS visible al hidratar la isla.
+// - client:visible → el usuario ve un cascarón vacío hasta hacer scroll.
+// - Procesar query params en el frontmatter "para pasarlos bonitos" → la
+//   isla los lee sola; dos parsers = dos fuentes de verdad.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: BaseLayout > h1 + resumen de pasos > div con min-h que envuelve
+     BookingFlow client:load + <noscript> con botón WhatsApp + notas de
+     confianza.
+     ========================================================================== -->

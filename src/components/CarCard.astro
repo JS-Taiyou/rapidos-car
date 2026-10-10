@@ -1,0 +1,85 @@
+---
+// ============================================================================
+// COMPONENTE: CarCard — tarjeta de modelo para catálogos (flota y home)
+// ============================================================================
+// PROPÓSITO: resumir un modelo de vehículo (foto, specs, tarifa "desde") y
+// llevar al detalle. Se usa en /flota (grid completo, datos de BD) y en la
+// home (preview con datos semilla).
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * Componente Astro PURO, cero JS: el catálogo no tiene interacción — las
+//   islas van solo donde la hay (ARCHITECTURE §2.1). Nada de onClick para
+//   navegar: el <a> nativo ya navega, es accesible y abre en pestaña nueva.
+// * Precio formateado EN SERVIDOR con Intl.NumberFormat: el frontmatter
+//   corre en build/SSR, así el HTML llega con "$850" ya puesto — sin
+//   formateo en cliente ni flash de precio crudo. dailyRateCents es entero
+//   en centavos (ARCHITECTURE §2.13): divide entre 100 ANTES de formatear.
+// * <img> con width/height FIJOS y loading="lazy": dimensiones fijas
+//   reservan la caja y evitan CLS (spec §6, Core Web Vitals); lazy porque
+//   el grid puede tener 10+ fotos. (La primera card above-the-fold puede
+//   llevar eager si parametrizas una prop `priority` — opcional.)
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. Props (contrato fijo; lo consumen flota/index.astro y la home):
+//      interface Props {
+//        model: {
+//          slug: string; name: string; category: string
+//          transmission: string; seats: number; luggage: number
+//          dailyRateCents: number; photos: string[]
+//        }
+//        lang: Lang
+//      }
+//    El objeto coincide con las columnas de vehicle_models (001_init paso
+//    2) tras mapear snake_case a camelCase — quien consulta la BD lo mapea.
+// 2. En el frontmatter: const t = useTranslations(lang); const price =
+//    new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
+//    maximumFractionDigits: 0 }).format(model.dailyRateCents / 100).
+//    Moneda siempre MXN aunque lang sea 'en' (el negocio cobra en pesos) —
+//    decide el locale de formato ('es-MX' vs 'en-MX') una sola vez y
+//    documéntalo en ui.ts.
+// 3. Template (<article> con borde redondeado y hover sutil):
+//    a. FOTO: primer elemento de model.photos; si photos está vacío, un
+//       placeholder SVG de /public — NUNCA romper el layout por falta de
+//       foto. <img src alt={model.name} width height loading="lazy"> con
+//       ratio consistente (p.ej. 16:10) en todas las cards.
+//    b. NOMBRE + CATEGORÍA: <h3> con model.name y etiqueta con
+//       t(`fleet.category.${model.category}`) — la categoría se traduce,
+//       no se muestra cruda de la BD. El nombre del auto NO se traduce.
+//    c. SPECS: fila de 3 items con iconos SVG inline (Heroicons MIT, sin
+//       librería de iconos: son 3 paths): asientos (model.seats), maletas
+//       (model.luggage) y transmisión (t('fleet.transmission.' + …)).
+//    d. PRECIO: t('fleet.from') + price + t('fleet.perDay') → "Desde $850
+//       MXN/día". Es tarifa base: temporadas y descuentos se explican en el
+//       detalle y en la cotización — NO calcules precio final aquí.
+//    e. LINK: "Ver detalle" → getLocalizedPath(`/flota/${model.slug}`,
+//       lang). Decide: o envuelves la tarjeta entera con el <a> (técnica
+//       stretched-link) o solo el CTA — ambos es redundante para lectores
+//       de pantalla.
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Props: { model, lang }. Consume: useTranslations, getLocalizedPath.
+// Expone: nada. Lo usan flota/index.astro (datos de BD) e index.astro
+// (datos semilla del frontmatter).
+//
+// ERRORES COMUNES
+// - Aritmética de floats con los centavos → divide /100 y usa
+//   maximumFractionDigits: 0.
+// - Fotos sin width/height → CLS en 4G (spec §6).
+// - onClick={navigate} → JS innecesario; <a> nativo siempre.
+// - Traducir "Nissan Versa 2023" → los nombres propios no se traducen; se
+//   traducen categoría y etiquetas.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: <article> tarjeta: foto 16:10 con dimensiones fijas, cuerpo
+     con nombre/categoría, fila de 3 specs con SVG inline, precio formateado
+     y link "Ver detalle". Todo texto de UI vía t(); datos del auto vía
+     props.
+     ========================================================================== -->

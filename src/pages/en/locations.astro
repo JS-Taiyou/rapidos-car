@@ -1,0 +1,49 @@
+---
+// ============================================================================
+// PÁGINA: Ubicaciones EN (/en/locations) — estática — ESPEJO de
+// src/pages/ubicaciones.astro
+// ============================================================================
+// PROPÓSITO: mostrar el aeropuerto MID y las zonas de entrega a hotel al
+// público angloparlante. La guía completa (estructura, mapa, tabla de cargos
+// por zona) está en src/pages/ubicaciones.astro — léela primero; aquí solo
+// va lo que cambia.
+//
+// Render: ESTÁTICA, igual que la ES.
+//
+// DIFERENCIAS vs src/pages/ubicaciones.astro (lista exacta — todo lo demás
+// es idéntico):
+// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`;
+//    `alternateUrl="/ubicaciones"`; canonical → /en/locations.
+// 2. Los NOMBRES de zona vienen de settings.delivery_zones (son DATOS del
+//    negocio — NO se traducen: son los mismos strings que usa el admin, la
+//    API y las reservaciones; traducirlos desalinearía la cotización).
+// 3. Las DESCRIPCIONES de zona y el resto de textos de la página SÍ se
+//    traducen, vía t(): agrega las claves locations.* en src/i18n/ui.ts para
+//    ambos locales (locations.title, locations.zones.*.desc,
+//    locations.feesNote, etc.). Si la guía ES ya definió claves, usa las
+//    MISMAS: la clave es agnóstica al idioma, el valor cambia por locale.
+// 4. Los imports relativos suben un nivel: '../../layouts/...', etc.
+//
+// ERRORES COMUNES DEL ESPEJO:
+// - alternateUrl apuntando a /en/locations o / → rompe hreflang; aquí SIEMPRE
+//   es "/ubicaciones". Verifica el <link rel="alternate"> generado.
+// - Hardcodear textos en inglés en el template → la fuente única es ui.ts
+//   (claves locations.*); un string suelto se desincroniza del ES.
+// - "Traducir" los nombres de zona que vienen de settings → son datos
+//   compartidos con la BD; solo las descripciones pasan por t().
+// - Cambiar la estructura (orden de zonas, tabla de cargos) solo en este
+//   idioma → las dos versiones deben diferir SOLO en textos.
+// - Traducir paths de API → los endpoints /api/* NO tienen versión EN; el
+//   idioma viaja en el body del request o en las props de las islas.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: idéntico al de src/pages/ubicaciones.astro. Cambian solo:
+     1. <BaseLayout lang="en" title={...} description={...}
+        alternateUrl="/ubicaciones">
+     2. Textos con t('locations.*') vía useTranslations('en')
+     3. Nombres de zona renderizados tal cual llegan de delivery_zones
+        (punto 2 del frontmatter); descripciones desde ui.ts
+     El mapa embebido y los datos de contacto son idénticos en ambos idiomas.
+     ========================================================================== -->

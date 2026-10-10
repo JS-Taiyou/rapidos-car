@@ -1,16 +1,69 @@
 ---
+// ============================================================================
+// PÁGINA: Home ES (/) — estática
+// ============================================================================
+// Propósito: convertir visitas en cotizaciones. Todo lo above-the-fold empuja
+// al widget; el resto son señales de confianza (spec §3.1 y §6).
+//
+// Render: ESTÁTICA (sin `prerender = false`). El contenido cambia menos que
+// el deploy; el preview de flota puede quedar estático con tarifas "desde"
+// sembradas, o SSR si prefieres frescura — decisión: estática por LCP <2s.
+//
+// Pasos:
+// 1. Importar `BaseLayout` desde '../layouts/BaseLayout.astro'. Le pasarás
+//    las props `lang="es"`, `title`, `description` y `alternateUrl="/en/"`.
+//    Por qué: el layout centraliza SEO/hreflang/JSON-LD; la página solo
+//    declara sus metadatos (ver contrato en BaseLayout.astro).
+// 2. Importar `QuoteWidget` desde '../components/react/QuoteWidget.tsx' y
+//    montarlo con la directiva `client:load`.
+//    Por qué client:load y no client:idle: es el embudo principal — debe ser
+//    interactivo apenas hidrata; el resto de la página no tiene JS.
+// 3. Importar `Header` y `Footer` (o dejar que BaseLayout los incluya — ver
+//    la guía del layout: header/footer viven EN el layout, la página solo
+//    aporta el contenido central).
+// 4. Importar `useTranslations` desde '../i18n/utils.ts' con lang 'es' para
+//    todos los textos. Nunca strings hardcodeados: el espejo /en/ usa el
+//    mismo componente de sección con lang 'en'.
+//
+// Estructura del template (de arriba hacia abajo):
+//   a. <section> HERO: titular + subtítulo (propuesta de valor: "renta sin
+//      sorpresas, seguro incluido") + <QuoteWidget client:load />.
+//      Fondo: foto de la flota o Mérida, con overlay para legibilidad.
+//      Por qué el widget va en el hero: spec §3.1 — la home ES el embudo;
+//      cualquier scroll antes de cotizar es fricción.
+//   b. <section> SEÑALES DE CONFIANZA: 3-4 items con icono inline SVG:
+//      años en el negocio, flota reciente, seguro incluido, atención 24/7
+//      por WhatsApp. Textos desde ui.ts (clave `home.trust.*`).
+//   c. <section> PREVIEW DE FLOTA: grid de 3-4 `CarCard` (componente Astro,
+//      sin JS) con los modelos sembrados en seed. Cada card enlaza a
+//      `/flota/[slug]`. Link "ver toda la flota" → /flota.
+//      Nota MVP: los modelos aquí son datos semilla hardcodeados EN EL
+//      FRONTMATTER (array literal) o leídos de la BD si activas SSR; decide
+//      y documenta. Recomendado MVP: literal — cero consultas en estático.
+//   d. <section> RESEÑAS: 3 testimonios estáticos + link a Google Business
+//      (spec §6). Marca el promedio con Review/AggregateRating dentro del
+//      JSON-LD del layout si el cliente lo confirma (no inventes reseñas).
+//   e. <section> CTA final: botón WhatsApp (usa el helper de src/lib/whatsapp.ts
+//      en su versión de servidor: el helper es puro, sirve en frontmatter).
+//
+// Contrato: no expone nada; consume BaseLayout, QuoteWidget, CarCard,
+// useTranslations('es').
+//
+// Errores comunes:
+// - Poner texto en español directo en el HTML → rompe el espejo EN.
+// - client:visible en el QuoteWidget → en mobile el hero ya es visible y se
+//   hidrata tarde; client:load es el correcto para el embudo.
+// - Meter el catálogo completo aquí → la home vende, /flota informa.
+// ============================================================================
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<!-- =========================================================================
+     TEMPLATE de la home. Guía:
+     1. <BaseLayout lang="es" title={...} description={...} alternateUrl="/en/">
+     2.   hero <section> con <QuoteWidget client:load />
+     3.   secciones b–e descritas en el frontmatter
+     4. </BaseLayout>
+     Todo el texto viene de `t('home.hero.title')` etc. — ver src/i18n/ui.ts.
+     Los iconos de confianza: SVG inline copiados de Heroicons (MIT), sin
+     librería de iconos: son 4 paths, no justifica una dependencia.
+     ========================================================================== -->

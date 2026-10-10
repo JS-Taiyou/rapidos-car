@@ -1,0 +1,52 @@
+---
+// ============================================================================
+// PÁGINA: Motor de reservación EN (/en/book) — estática + isla — ESPEJO de
+// src/pages/reservar.astro
+// ============================================================================
+// PROPÓSITO: montar el wizard de reservación para el público angloparlante.
+// La guía del funnel (6 pasos, máquina de estados, API) está en
+// src/components/react/booking/BookingFlow.tsx y la de la página en
+// src/pages/reservar.astro — léelas primero; aquí solo va lo que cambia.
+//
+// Render: ESTÁTICA + isla (sin `prerender = false`): el HTML es fijo y toda
+// la interacción vive en la isla React (ARCHITECTURE §2.2).
+//
+// DIFERENCIAS vs src/pages/reservar.astro (lista exacta — todo lo demás es
+// idéntico):
+// 1. `<BookingFlow client:load lang="en" />` — la prop lang hace que el
+//    wizard resuelva sus textos con useTranslations('en') (ver CONTRATO en
+//    BookingFlow.tsx: props { lang: 'es' | 'en' }).
+// 2. `<noscript>` con mensaje en INGLÉS: explica que el motor requiere
+//    JavaScript y da la vía alterna (teléfono y WhatsApp del negocio). Mismo
+//    markup que la versión ES, otro idioma.
+// 3. Los query params que pre-llenan el paso 1 son los MISMOS
+//    (?start=…&end=…&zone=…): el wizard los lee igual en ambos idiomas.
+//    Nota: que las URLs del QuoteWidget EN apunten a /en/book se define EN
+//    QuoteWidget (vía su prop lang), NO en esta página.
+// 4. `alternateUrl="/reservar"`; canonical → /en/book (lo arma el layout).
+// 5. Los imports relativos suben un nivel: '../../components/react/booking/
+//    BookingFlow.tsx', '../../i18n/utils.ts', etc.
+//
+// ERRORES COMUNES DEL ESPEJO:
+// - alternateUrl apuntando a /en/book o a / → rompe hreflang; aquí SIEMPRE es
+//   "/reservar". Verifica el <link rel="alternate"> generado.
+// - Hardcodear textos en inglés en el template o en el noscript "traducido
+//   después" → la fuente única es ui.ts; cualquier string suelto se
+//   desincroniza del ES en la primera edición.
+// - Cambiar la estructura (qué rodea al wizard: título, ayuda, noscript) solo
+//   en este idioma → las dos versiones deben diferir SOLO en textos.
+// - Traducir paths de API → el wizard llama a /api/quote y /api/bookings tal
+//   cual: los endpoints NO tienen versión EN; el idioma viaja en el body del
+//   request o en las props de las islas.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: idéntico al de src/pages/reservar.astro. Cambian solo:
+     1. <BaseLayout lang="en" title={...} description={...}
+        alternateUrl="/reservar">
+     2. <BookingFlow client:load lang="en" />
+     3. <noscript> con el mensaje en inglés (punto 2 del frontmatter)
+     El wizard hidrata y lee ?start&end&zone por sí mismo — esta página no
+     procesa query params en el frontmatter.
+     ========================================================================== -->

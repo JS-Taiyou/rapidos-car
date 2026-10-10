@@ -1,0 +1,86 @@
+---
+// ============================================================================
+// COMPONENTE: Header — chrome superior del sitio público
+// ============================================================================
+// PROPÓSITO: logo, navegación principal, CTA de WhatsApp y switcher ES|EN.
+// Lo monta BaseLayout en TODAS las páginas (no se importa por página — ver
+// la guía del layout).
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * CERO JavaScript: el header es chrome estático. Las islas React se
+//   reservan para interacción real (cotizar, reservar) — ARCHITECTURE §2.1.
+//   El menú móvil se resuelve con <details>/<summary> nativo (o checkbox
+//   hack): accesible, funciona sin JS y sin hidratación.
+// * Links NUNCA hardcodeados: se generan desde un array {key, path} +
+//   getLocalizedPath() de src/i18n/utils.ts. El espejo EN reutiliza este
+//   mismo componente con lang="en" y obtiene /en/fleet, /en/book… gratis.
+//   Un href literal rompería el espejo.
+// * El switcher de idioma apunta a getAlternateUrl(Astro.url.pathname):
+//   usa la URL ACTUAL y NO lleva estado (ni ?lang= ni localStorage — las
+//   URLs deben ser compartibles y rastreables por Google). Limitación MVP
+//   documentada: en páginas de detalle (/flota/versa) el switcher cae en el
+//   índice de la sección (/en/fleet) porque el slug no tiene traducción 1:1
+//   garantizada; el SEO correcto de esas páginas lo cubre el <link
+//   hreflang> del layout con su propia alternateUrl. Cuando todos los slugs
+//   tengan espejo confirmado, extiende getAlternateUrl y borra esta nota.
+// * sticky top + backdrop-blur sobre fondo semitransparente: el CTA de
+//   WhatsApp queda siempre a un tap (embudo WhatsApp-nativo, spec §3.6) y
+//   da sensación de app sin una línea de JS.
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. Props: interface Props { lang: Lang }. Obtener `t` con
+//    useTranslations(lang) e importar getLocalizedPath/getAlternateUrl de
+//    '../i18n/utils' y buildWhatsAppUrl de '../lib/whatsapp'.
+// 2. Declarar en el frontmatter el array de navegación (orden = orden
+//    visual):
+//      const navItems = [
+//        { key: 'nav.home',      path: '/' },
+//        { key: 'nav.fleet',     path: '/flota' },
+//        { key: 'nav.locations', path: '/ubicaciones' },
+//        { key: 'nav.faq',       path: '/faq' },
+//        { key: 'nav.contact',   path: '/contacto' },
+//      ]
+//    Cada <a> se renderiza con href={getLocalizedPath(item.path, lang)} y
+//    texto t(item.key). Marca el link activo comparando Astro.url.pathname
+//    (clase distinta + aria-current="page").
+// 3. Logo: texto "Rapidoz" + mark SVG inline (un solo <path> — rayo o
+//    silueta de auto). Inline = sin request extra y hereda currentColor.
+// 4. CTA WhatsApp: botón con href={buildWhatsAppUrl(t('nav.whatsapp'))} —
+//    el helper es puro y funciona en frontmatter. target="_blank"
+//    rel="noopener". En mobile el CTA queda visible junto a la hamburguesa:
+//    es la acción #1 del negocio.
+// 5. Switcher ES|EN: dos <a> ("ES" / "EN") hacia getAlternateUrl(
+//    Astro.url.pathname); el idioma activo va marcado con aria-current.
+// 6. Menú móvil: <details class="md:hidden"> con <summary> estilizado como
+//    botón hamburguesa (icono SVG inline, cursor-pointer) y la MISMA lista
+//    navItems en columna dentro. Desktop: <nav class="hidden md:flex"> con
+//    los mismos items en fila. Ambos menús salen del MISMO array — jamás
+//    dupliques la lista a mano (se desincronizan).
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Props: { lang: Lang }. Consume: useTranslations, getLocalizedPath,
+// getAlternateUrl (i18n/utils), buildWhatsAppUrl (lib/whatsapp).
+// Sin slots, sin estado, sin JS. Lo monta BaseLayout.
+//
+// ERRORES COMUNES
+// - Hrefs literales ('/flota') → el espejo EN navega a rutas en español.
+// - Menú móvil con useState/onClick → JS innecesario en chrome estático.
+// - Switcher con ?lang= o estado → URLs no compartibles y SEO roto.
+// - Esconder el CTA de WhatsApp dentro del menú móvil → entierras la
+//   acción principal.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: <header class="sticky top-0 z-50 backdrop-blur bg-.../80">
+     con una barra flex: logo a la izquierda, <nav> desktop al centro, CTA
+     WhatsApp + switcher ES|EN a la derecha, y el <details> hamburguesa solo
+     en mobile con la misma navItems en columna. Todo texto vía t(), toda
+     ruta vía getLocalizedPath.
+     ========================================================================== -->

@@ -1,0 +1,80 @@
+---
+// ============================================================================
+// PÁGINA: Admin — Reservaciones (/admin/reservaciones) — SSR (shell de isla)
+// ============================================================================
+// PROPÓSITO
+// ----------------------------------------------------------------------------
+// Centro de operación del pipeline: ver y filtrar reservaciones (lista y
+// calendario), mover estados (confirmed → active → completed | cancelled),
+// capturar rentas manuales (teléfono / walk-in, spec §4.3) y crear bloqueos
+// de taller (kind='block', ARCHITECTURE §2.10).
+
+// export const prerender = false;   // descomenta al instalar el adapter — ARCHITECTURE §6
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * La página es solo el SHELL que monta la isla: el frontmatter hace la
+//   guardia y NADA más; los datos los fetchea ReservationsBoard contra
+//   /api/admin/bookings.
+//   Por qué no SSR de datos + hidratación: filtros, paginación y cambios de
+//   estado son reactivos; pasar el primer dataset por props y luego
+//   refetchear crea dos fuentes de verdad y complejidad innecesaria para 4
+//   usuarios internos. Un spinner inicial es perfectamente aceptable aquí.
+// * meta robots noindex (CRÍTICO): herramienta interna, no debe indexarse en
+//   buscadores — superficie de ataque sin beneficio.
+// * Shell mínimo propio, NO BaseLayout público (sin SEO/Header/Footer).
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. GUARDIA PRIMERO (ARCHITECTURE §2.3): `requireAdmin(Astro)` de
+//    '../../lib/auth.ts' como primera línea efectiva. Sin sesión →
+//    /admin/login. Es lo ÚNICO del frontmatter además de los imports.
+// 2. Importar '../../styles/global.css' (Tailwind v4).
+// 3. Importar `ReservationsBoard` desde
+//    '../../components/react/admin/ReservationsBoard.tsx'.
+// 4. Template (shell mínimo, ver bloque inferior):
+//    a. <html lang="es">, <head> con charset, viewport,
+//       <meta name="robots" content="noindex, nofollow"> y
+//       <title>Reservaciones — Rapidoz Admin</title>.
+//    b. <nav> interno: mismo patrón del dashboard (links /admin,
+//       /admin/reservaciones, /admin/flota + botón Salir con su script
+//       inline). Ya son 3 páginas repitiéndolo: extráelo a
+//       src/components/admin/AdminNav.astro al implementar.
+//    c. Encabezado <h1> "Reservaciones" y debajo
+//       <ReservationsBoard client:load /> a ancho completo.
+//       client:load y no client:idle: el staff abre esta página para
+//       trabajar de inmediato; no hay contenido previo que priorizar.
+// 5. La isla incluye (ver su propia guía): tabla con filtros por estado y
+//    fechas, vista calendario, diálogo de captura manual (crea bookings con
+//    kind='rental' vía POST /api/admin/bookings) y diálogo de bloqueo de
+//    taller (misma ruta con kind='block' y sin cliente).
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Consume: requireAdmin (../../lib/auth.ts) y la isla ReservationsBoard.
+// La isla habla con GET/POST /api/admin/bookings y PATCH
+// /api/admin/bookings/[id]. La página NO toca la BD directamente.
+//
+// ----------------------------------------------------------------------------
+// ERRORES COMUNES
+// ----------------------------------------------------------------------------
+// * Fetchear bookings en el frontmatter Y pasarlos por props a la isla:
+//   doble fuente de verdad que se desincroniza al primer PATCH. Aquí manda
+//   la isla.
+// * client:visible o client:idle: la isla ES la página; hidrata de inmediato.
+// * Crear la captura manual como formulario HTML aparte: duplicarías la
+//   validación — el diálogo de la isla reutiliza los schemas zod de
+//   src/lib/validation.ts (ARCHITECTURE §2.12).
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE (shell de isla):
+     1. <html lang="es"> + <head> con noindex y <title>Reservaciones — Rapidoz
+        Admin</title>.
+     2. <nav> interno idéntico al del dashboard (→ AdminNav.astro).
+     3. <h1>Reservaciones</h1> + <ReservationsBoard client:load />.
+     ========================================================================== -->

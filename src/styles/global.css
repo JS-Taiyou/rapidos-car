@@ -1,0 +1,104 @@
+@import "tailwindcss";
+/* ============================================================================
+   STYLES: global.css — Tailwind v4 + tokens de marca (ARCHITECTURE §2.7, §6)
+   ============================================================================
+   Propósito: único punto de entrada de estilos. Tailwind v4 ya no usa
+   tailwind.config.js: TODA la configuración (colores de marca, fuentes) vive
+   aquí en CSS. Se importa UNA vez en el layout y nada más.
+
+   ----------------------------------------------------------------------------
+   DECISIONES
+   ----------------------------------------------------------------------------
+   * Tailwind v4 vía @tailwindcss/vite, sin archivo de config: un import de
+     CSS y un bloque @theme reemplazan tailwind.config.js. Menos archivos,
+     config junto a los estilos que la usan, y Vite la procesa sin PostCSS
+     extra (spec §6: presupuesto de performance; menos pipeline = menos build).
+   * Stack de fuentes DEL SISTEMA, cero webfonts: cada webfont es una
+     descarga que bloquea el primer pintado; el spec §6 exige LCP < 2s en 4G.
+     System-ui se ve nativo en cada plataforma y cuesta 0 bytes.
+   * Pinch-zoom NUNCA deshabilitado (accesibilidad, spec §6): no existe
+     `user-scalable=no` en ningún meta de este proyecto. Está comentado aquí
+     porque es la tentación clásica para "que parezca app" — prohibido.
+   ========================================================================== */
+
+
+/* --------------------------------------------------------------------------
+   PASO 1 — Importar Tailwind
+   --------------------------------------------------------------------------
+   Escribe como PRIMERA línea ejecutable del archivo:
+     @import "tailwindcss";
+   Eso es todo el "setup" de CSS. Detrás de escena lo procesa el plugin
+   @tailwindcss/vite, que debe estar registrado en astro.config.mjs
+   (vite.plugins: [tailwindcss()]) — ver ARCHITECTURE §6 paso 2. Sin ese
+   plugin, este import se sirve literal al navegador y nada funciona. */
+
+
+/* --------------------------------------------------------------------------
+   PASO 2 — Tokens de marca en @theme
+   --------------------------------------------------------------------------
+   Escribe un bloque @theme con estos tokens (los valores hex/finales los
+   eliges tú al implementar):
+
+     @theme {
+       --color-brand: <hex>;        // color principal de botones y acentos
+       --color-brand-dark: <hex>;   // hover/pressed y texto sobre claro
+       --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+     }
+
+   Sugerencia de paleta (inspiración Yucatán, no requisito): un azul-celeste
+   de cenote (p.ej. rango #0e7490–#0891b2) como brand, con brand-dark dos
+   pasos más oscuro; o un verde selva (#15803d) si el logo ya es verde.
+   Criterios al elegir: contraste AA sobre blanco para texto y botones
+   (verifícalo con cualquier checker), y que el color NO choque con el de
+   WhatsApp (#25D366) en CTAs vecinos — el botón de WhatsApp debe seguir
+   siendo reconocible como WhatsApp.
+
+   Por qué tokens en @theme y no clases hex sueltas: Tailwind v4 genera las
+   utilidades (bg-brand, text-brand-dark, font-sans) a partir de estos nombres;
+   cambiar la marca después es editar UNA línea aquí, no grep de 200 clases. */
+
+
+/* --------------------------------------------------------------------------
+   PASO 3 — Utilidades base (encima de Tailwind, con tu propio CSS mínimo)
+   --------------------------------------------------------------------------
+   3a. Foco visible siempre: regla :focus-visible con outline de 2-3px en el
+       color brand (u outline-offset). Los usuarios de teclado deben VER dónde
+       están; Tailwind no lo impone por defecto en todos los elementos.
+   3b. Scroll suave: html { scroll-behavior: smooth } — los anchors internos
+       (nav → secciones) se sienten pulidos; una línea, cero JS.
+   3c. RECORDATORIO de viewport (no es CSS de este archivo, es del <meta> en
+       BaseLayout.astro, pero se documenta aquí porque es la misma decisión):
+       el meta viewport debe ser SOLO
+         width=device-width, initial-scale=1
+       NUNCA agregar maximum-scale ni user-scalable=no (spec §6 accesibilidad:
+       el pinch-zoom es una herramienta de legibilidad, quitarlo es una barrera).
+   3d. (Opcional) ::selection con el color brand a baja opacidad: detalle de
+       marca barato. */
+
+
+/* --------------------------------------------------------------------------
+   PASO 4 — Cómo entra este archivo al sitio
+   --------------------------------------------------------------------------
+   * Se importa UNA SOLA VEZ, en el frontmatter de BaseLayout.astro:
+       import '../styles/global.css'
+     Ninguna página ni isla lo importa de nuevo (islas: las utilidades ya
+     están en el documento cuando hidratan; importarlo en un .tsx duplicaría
+     CSS en el bundle del cliente).
+   * shadcn/ui: sus componentes copiados usan clases Tailwind y leen estos
+     tokens; al correr `npx shadcn@latest init` (ARCHITECTURE §6 paso 3) el
+     CLI preguntará por el CSS base — apúntalo a este archivo. shadcn agrega
+     sus propias variables (background, foreground, border…) en otro bloque
+     @theme: déjalas convivir con las tuyas y, si duplica font-sans, conserva
+     el stack del sistema del paso 2.
+
+   ----------------------------------------------------------------------------
+   ERRORES COMUNES
+   ----------------------------------------------------------------------------
+   - Crear tailwind.config.js "por costumbre" → en v4 es legacy; config en CSS.
+   - Olvidar el plugin @tailwindcss/vite en astro.config.mjs → el import se
+     sirve como texto plano y la página sale sin estilos.
+   - Importar global.css en cada página → CSS duplicado; una vez, en el layout.
+   - Agregar una webfont "bonita" → rompe el presupuesto LCP < 2s en 4G
+     (spec §6); stack del sistema, siempre.
+   - user-scalable=no en el viewport → barrera de accesibilidad, prohibido.
+   ============================================================================ */

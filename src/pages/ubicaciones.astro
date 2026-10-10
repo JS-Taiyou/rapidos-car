@@ -1,0 +1,74 @@
+---
+// ============================================================================
+// PÁGINA: Ubicaciones ES (/ubicaciones) — estática
+// ============================================================================
+// PROPÓSITO: explicar DÓNDE y CÓMO se entrega el auto (aeropuerto MID y
+// entrega a hotel) para quitar fricción antes de reservar (spec §3.4).
+//
+// Render: ESTÁTICA — decisión deliberada: las zonas y tarifas de entrega
+// (delivery_zones en settings, 001_init paso 3) cambian una vez al año; con
+// SSR pagarías una query por visita para leer siempre lo mismo. Los datos
+// aquí son los del seed escritos a mano en ui.ts, y CAMBIAR TARIFAS =
+// EDITAR ui.ts + redeploy. OPCIÓN SSR documentada: si el negocio empieza a
+// mover tarifas seguido, agrega prerender=false (con adapter instalado) y
+// lee settings.delivery_zones con sql — anota aquí cuándo se activó.
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * Claves NUEVAS en ui.ts: esta página requiere agregar el bloque
+//   locations.* (títulos, proceso, zonas, notas) en AMBOS idiomas antes de
+//   implementar — las claves se listan en los pasos y el espejo EN
+//   (/en/locations) usa exactamente las mismas.
+// * Mapa con iframe oficial de Google Maps (maps.google.com → "Compartir →
+//   Insertar mapa") con loading="lazy": cero costo de API key y cero SDK JS
+//   pesado (~200 kB que no pagamos); lazy porque está below-the-fold. Un
+//   SDK interactivo no aporta nada a "ver dónde estamos".
+// * flight_number: mencionar que en el aeropuerto se pide el número de
+//   vuelo en la reservación (bookings.flight_number, 001_init paso 4) para
+//   rastrear retrasos — vende la ventaja operativa (spec §5) aunque el
+//   tracking automático sea fase 2 (ARCHITECTURE §7).
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. Imports: BaseLayout ('../layouts/BaseLayout.astro'),
+//    useTranslations/getLocalizedPath de '../i18n/utils', buildWhatsAppUrl
+//    de '../lib/whatsapp'.
+// 2. Sección AEROPUERTO (MID): t('locations.airport.title'), punto de
+//    reunión (t('locations.airport.meetingPoint') — describir el módulo o
+//    la salida de llegadas donde espera el staff), proceso de entrega en
+//    terminal como lista ordenada <ol> (llegada → aviso por WhatsApp →
+//    entrega y firma) y la nota de vuelo t('locations.airport.flightNote').
+// 3. Sección ENTREGA A HOTEL: lista de zonas con tarifa — los datos del
+//    seed (centro, norte, zona hotelera) como t('locations.zones.centro')
+//    etc., con su fee en MXN formateado como en CarCard (Intl.NumberFormat)
+//    — tiempos estimados de entrega y nota de que la zona se elige al
+//    cotizar (pickup_zone del wizard).
+// 4. MAPA: iframe embebido centrado en Mérida o en el aeropuerto, con
+//    loading="lazy", title descriptivo (accesibilidad), ancho 100% y alto
+//    fijo reservado (sin CLS).
+// 5. CTA final: botón a getLocalizedPath('/reservar', 'es') + WhatsApp
+//    secundario (spec §3.6: todo camino termina en el funnel).
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Consume: BaseLayout, i18n (claves locations.* NUEVAS — agregarlas a
+// ui.ts), whatsapp.ts. Estática: no toca la BD. Espejo EN: /en/locations
+// con alternateUrl="/ubicaciones".
+//
+// ERRORES COMUNES
+// - SSR "por si acaso" → una query por visita para datos anuales.
+// - SDK de Maps con API key → costo y JS sin beneficio frente al iframe.
+// - Tarifas hardcodeadas en el HTML → se olvidan al cambiar el seed; van en
+//   ui.ts (bilingüe) o se activa el modo SSR — nunca texto plano duplicado.
+// - Iframe sin loading="lazy" ni title → peso innecesario y a11y rota.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: BaseLayout > sección aeropuerto (punto de reunión + <ol> de
+     proceso + nota de vuelo) > sección zonas de hotel (lista con tarifas) >
+     iframe de mapa lazy > CTA a /reservar y WhatsApp.
+     ========================================================================== -->

@@ -1,0 +1,58 @@
+---
+// ============================================================================
+// PÁGINA: Detalle de modelo EN (/en/fleet/[slug]) — SSR — ESPEJO de
+// src/pages/flota/_[slug].astro
+// ============================================================================
+// NOTA DE SCAFFOLDING: el archivo se llama `_[slug].astro` (guion bajo) para
+// que el router de Astro lo ignore mientras es guía — sin exports, Astro
+// exigiría getStaticPaths y el build fallaría. Al implementarla, renómbrala
+// a `[slug].astro`.
+// ============================================================================
+// PROPÓSITO: detalle de un modelo (fotos, specs, tarifa, CTA a reservar) en
+// inglés. La guía completa (query por slug, galería, tabla de specs) está en
+// src/pages/flota/_[slug].astro — léela primero; aquí solo va lo que cambia.
+//
+// Render: SSR (`export const prerender = false`), igual que la ES — la
+// tarifa y el estado del modelo se leen de la BD en cada request.
+//
+// DIFERENCIAS vs src/pages/flota/_[slug].astro (lista exacta — todo lo demás
+// es idéntico):
+// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`; labels de
+//    specs y CTAs desde las MISMAS claves de ui.ts (fleetDetail.* o las que
+//    defina la guía ES — usa exactamente esas).
+// 2. alternateUrl DINÁMICA: `/flota/${Astro.params.slug}` — MISMO slug, solo
+//    cambia el prefijo de ruta. Canonical → /en/fleet/[slug].
+// 3. EL SLUG NO SE TRADUCE: es el mismo registro de `vehicle_models` en la BD.
+//    Por qué: el slug es un identificador, no contenido. Traducirlo rompería
+//    los links ya compartidos (un link ES pegado en WhatsApp debe resolver
+//    siempre) y obligaría a mantener un mapa slug-ES ↔ slug-EN solo para
+//    hreflang. Una sola fuente: `vehicle_models.slug`.
+// 4. Si el slug no existe o el modelo está inactivo: redirect a /en/fleet
+//    (NO a /flota) o 404 con mensaje en inglés — mismo criterio que la ES.
+// 5. El CTA de reservación apunta a /en/book (con los query params que
+//    corresponda según la guía ES, p. ej. ?model=<slug>).
+// 6. Los imports relativos suben un nivel más: '../../../lib/db.ts', etc.
+//
+// ERRORES COMUNES DEL ESPEJO:
+// - alternateUrl sin el slug o apuntando a /en/fleet/[slug] → rompe hreflang;
+//   aquí SIEMPRE es `/flota/${slug}` con el slug intacto.
+// - Hardcodear textos en inglés en el template → la fuente única es ui.ts;
+//   un string suelto aquí se desincroniza del ES en la primera edición.
+// - Cambiar la estructura (orden de galería/specs/CTA) solo en este idioma →
+//   las dos versiones deben diferir SOLO en textos de UI.
+// - Traducir el slug o los paths de API → los endpoints /api/* NO tienen
+//   versión EN y el slug es un identificador de BD; el idioma viaja en el
+//   body del request o en las props de las islas.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: idéntico al de src/pages/flota/_[slug].astro. Cambian solo:
+     1. <BaseLayout lang="en" title={model.name ...} description={...}
+        alternateUrl={`/flota/${slug}`}>
+     2. Labels de specs (seats, luggage, transmission) y botones con
+        t('fleetDetail.*') vía useTranslations('en')
+     3. CTA → /en/book (punto 5 del frontmatter)
+     Los datos del modelo (name, photos, specs, tarifa) llegan SIN traducir
+     de la misma query por slug que la versión ES.
+     ========================================================================== -->

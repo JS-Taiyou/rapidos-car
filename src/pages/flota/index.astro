@@ -1,0 +1,80 @@
+---
+// ============================================================================
+// PÁGINA: Catálogo de flota ES (/flota) — SSR
+// ============================================================================
+// PROPÓSITO: mostrar TODOS los modelos activos con tarifa "desde" y llevar
+// al detalle o a cotizar. La home vende; aquí se compara e informa
+// (spec §3.2).
+//
+// Render: SSR — la línea siguiente se descomenta al instalar el adapter:
+//    export const prerender = false
+//    ⚠ DÉJALA COMENTADA hasta instalar @deno/astro-adapter: sin adapter el
+//    build falla; en `astro dev` las rutas SSR funcionan sin él
+//    (ARCHITECTURE §2.2 y §6 — el orden de puesta en marcha importa).
+//    Por qué SSR y no estática: tarifas y altas/bajas de unidades cambian
+//    sin rebuild (§2.2). El LCP se protege con una query BARATA (un JOIN +
+//    COUNT sobre tablas con índices) — nada de queries de solapes aquí: la
+//    disponibilidad real por fechas se cotiza en /api/quote.
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. Imports: BaseLayout ('../../layouts/BaseLayout.astro'), CarCard
+//    ('../../components/CarCard.astro'), `sql` de '../../lib/db' (singleton
+//    postgres.js, solo servidor), useTranslations/getLocalizedPath de
+//    '../../i18n/utils', buildWhatsAppUrl de '../../lib/whatsapp'.
+// 2. Query de catálogo (mismo patrón que availability.ts pero SIN filtro de
+//    fechas ni buffer: aquí se muestra el catálogo COMPLETO; la
+//    disponibilidad por rango vive en el motor de cotización):
+//      SELECT m.slug, m.name, m.category, m.transmission, m.seats,
+//             m.luggage, m.daily_rate_cents, m.photos,
+//             COUNT(v.id) AS active_units
+//      FROM vehicle_models m
+//      LEFT JOIN vehicles v ON v.model_id = m.id AND v.status = 'active'
+//      WHERE m.active = true
+//      GROUP BY m.id
+//      ORDER BY m.daily_rate_cents ASC
+//    LEFT JOIN (no INNER): un modelo recién dado de alta sin unidades aún
+//    puede mostrarse — o decide filtrarlo con HAVING COUNT(v.id) > 0 y
+//    documenta tu elección aquí. Orden por tarifa: el negocio muestra
+//    primero lo económico (spec §3.2).
+// 3. Mapear snake_case → camelCase al tipo que CarCard espera (slug, name,
+//    category, transmission, seats, luggage, dailyRateCents, photos).
+//    Castea el COUNT a number (postgres.js puede devolver bigint como
+//    string — misma nota que availability.ts).
+// 4. Template: <BaseLayout lang="es" title={t('fleet.title')} description=
+//    {t('fleet.description')} alternateUrl="/en/fleet"> con:
+//    a. Encabezado: <h1> t('fleet.title') + subtítulo t('fleet.subtitle').
+//    b. GRID: 1 columna en mobile, 2 en md, 3 en lg, de <CarCard
+//       model={...} lang="es" />.
+//    c. ESTADO VACÍO (lista vacía — flota recién migrada): mensaje
+//       t('fleet.empty') + botón WhatsApp con buildWhatsAppUrl(
+//       t('fleet.emptyCta')). NUNCA una página en blanco: WhatsApp es el
+//       fallback universal del funnel (spec §3.6).
+//    d. Nota bajo el grid: t('fleet.pricesNote') — "tarifas base sujetas a
+//       temporada; el precio final se calcula al cotizar fechas".
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Consume: db.ts (tablas vehicle_models y vehicles), CarCard, BaseLayout,
+// i18n, whatsapp.ts. No expone nada. El espejo /en/fleet es OTRO archivo
+// que monta los mismos componentes con lang="en" y alternateUrl="/flota".
+//
+// ERRORES COMUNES
+// - Copiar la query de availability.ts con tstzrange → el catálogo se
+//   vacía sin fechas; esta página NO calcula disponibilidad.
+// - N+1: una query por modelo para contar unidades → el COUNT + GROUP BY lo
+//   resuelve en UNA sola (spec §2: cada query cuenta en el free tier).
+// - Olvidar m.active = true → modelos dados de baja reaparecen (borrado
+//   lógico, 001_init paso 2).
+// - Descomentar prerender=false antes de instalar el adapter → build roto.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: BaseLayout > encabezado (h1 + subtítulo) > grid responsive de
+     CarCard > estado vacío con CTA WhatsApp cuando la lista viene vacía >
+     nota de tarifas. Sin islas, sin JS: el link de cada card lleva a
+     /flota/[slug].
+     ========================================================================== -->

@@ -1,0 +1,104 @@
+---
+// ============================================================================
+// LAYOUT: BaseLayout — layout maestro del sitio público (ES y EN)
+// ============================================================================
+// PROPÓSITO: centralizar TODO lo que comparten las páginas públicas: el
+// <head> completo (SEO, hreflang, JSON-LD), el chrome (Header/Footer) y la
+// única importación de CSS global del proyecto. Las páginas solo declaran
+// sus metadatos y aportan el contenido en <slot/>.
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * Header y Footer viven AQUÍ y no en cada página (DRY): 7 rutas × 2
+//   locales repetirían el mismo par de tags; además, con View Transitions
+//   el chrome se conserva entre navegaciones en vez de re-montarse.
+// * `ClientRouter` de 'astro:transitions' montado en <head>: activa View
+//   Transitions built-in (spec §2: navegación tipo app SIN pagar el costo
+//   de una SPA — ARCHITECTURE §2.1). Cero JS propio, cero configuración.
+// * transition:persist: NINGUNO en el MVP. Persistir el Header congelaría
+//   su estado (menú móvil abierto, link activo) entre páginas; persistir
+//   islas arrastraría estado del QuoteWidget hacia /reservar. Cuando algo
+//   lo necesite (p.ej. widget de chat en fase 2), persiste SOLO ese
+//   elemento y documéntalo aquí.
+// * Viewport SIN user-scalable=no ni maximum-scale (spec §6: el pinch-zoom
+//   es un derecho de accesibilidad, no un bug de diseño).
+// * ÚNICO import de '../styles/global.css' en todo el proyecto (Tailwind v4
+//   entra por ahí — ARCHITECTURE §2.7). Si otra página lo importa, el CSS
+//   se duplica en el bundle.
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. Declarar el contrato de props:
+//      interface Props {
+//        lang: Lang             // 'es' | 'en' — importa el tipo de ../i18n/utils
+//        title: string          // ya traducido por la página (vía t())
+//        description: string    // idem, 150-160 caracteres
+//        alternateUrl: string   // path de la página espejo, p.ej. '/en/fleet'
+//      }
+// 2. Imports del frontmatter: '../styles/global.css'; `Header` de
+//    '../components/Header.astro'; `Footer` de '../components/Footer.astro';
+//    `ClientRouter` de 'astro:transitions'. NADA más: el layout no conoce
+//    islas ni BD.
+// 3. Resolver la URL base desde PUBLIC_SITE_URL (import.meta.env) — o
+//    `Astro.site` una vez configurado `site` en astro.config.mjs
+//    (ARCHITECTURE §6 paso 2). Construir `canonicalUrl` = base +
+//    Astro.url.pathname y `alternateFull` = base + alternateUrl. Canonical e
+//    hreflang REQUIEREN URLs absolutas; sin base configurada Google los
+//    ignora. Nunca hardcodees el dominio (rompe staging y previews).
+// 4. Redactar el JSON-LD como objeto JS en el frontmatter (const jsonLd =
+//    { '@context': 'https://schema.org', '@type': ['AutoRental',
+//    'LocalBusiness'], name, telephone, address (Mérida, Yucatán, MX), geo
+//    (lat/lng), openingHours, sameAs: [URL de Google Business] }) e
+//    imprimirlo en el template con set:html={JSON.stringify(jsonLd)}.
+//    ⚠ RELLENAR CON DATOS REALES DEL NEGOCIO: teléfono, dirección, horario
+//    y el perfil de Google Business se confirman con el dueño — schema
+//    inventado penaliza el SEO local en vez de ayudar (spec §6). Deja
+//    comentado TODO junto a cada campo pendiente de confirmar.
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Consume: Header, Footer, ClientRouter, global.css, PUBLIC_SITE_URL.
+// Expone a las páginas: <slot/> (contenido principal) y <slot name="head"/>
+// (schema extra por página — Product en /flota/[slug], FAQPage en /faq).
+// El layout NO traduce: recibe title/description ya traducidos por la página.
+//
+// ERRORES COMUNES
+// - Dominio hardcodeado en canonical/hreflang → URLs inválidas en previews.
+// - hreflang solo es/en sin x-default → Google elige mal la versión default.
+// - Importar global.css también desde páginas → CSS duplicado.
+// - transition:persist en Header "porque se ve fluido" → estado congelado
+//   entre páginas; no persistir nada en el MVP.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE del layout. Guía:
+     1. <!doctype html> y <html lang={lang}> — el espejo EN reutiliza este
+        mismo archivo; el atributo lang es lo único que cambia.
+     2. <head>:
+        - <meta charset="utf-8"> SIEMPRE primero (antes de cualquier texto).
+        - viewport "width=device-width, initial-scale=1" — SIN
+          user-scalable=no (ver DECISIONES).
+        - <title>{title}</title> y <meta name="description">.
+        - <link rel="canonical" href={canonicalUrl}>.
+        - hreflang: tres <link rel="alternate">: hreflang="es" apuntando a la
+          URL ES, hreflang="en" a alternateFull, hreflang="x-default" a la
+          versión ES (negocio mexicano: español es el default). En el espejo
+          EN se invierten es/en — documéntalo al crear las páginas EN.
+        - Open Graph básicos: og:title, og:description, og:type "website",
+          og:url, og:locale (es_MX / en_US según lang) + og:image estática
+          (crea una foto OG de la flota en /public, 1200x630). Twitter card
+          summary_large_image con la misma imagen.
+        - favicon: /favicon.svg con fallback /favicon.ico (ya existen).
+        - <ClientRouter /> — una sola vez aquí, para todo el sitio.
+        - <script type="application/ld+json"> con el objeto del paso 4.
+        - <slot name="head" /> — páginas con schema propio lo inyectan aquí
+          sin tocar el layout.
+     3. <body> con clases base (fondo, texto, antialiased):
+        skip-link "Saltar al contenido" como primer elemento (apunta a
+        #content, spec §6 accesibilidad), luego <Header lang={lang} />,
+        <main id="content"><slot /></main>, <Footer lang={lang} />.
+     ========================================================================== -->

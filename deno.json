@@ -1,0 +1,7 @@
+{
+  "tasks": {
+    "db:migrate": "deno run --allow-net --allow-read --allow-env --env-file=.env scripts/migrate.ts",
+    "db:seed": "deno run --allow-net --allow-read --allow-env --env-file=.env scripts/seed.ts"
+  },
+  "nodeModulesDir": "auto"
+}

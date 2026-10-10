@@ -1,0 +1,58 @@
+---
+// ============================================================================
+// PÁGINA: Home EN (/en/) — estática — ESPEJO de src/pages/index.astro
+// ============================================================================
+// PROPÓSITO: misma función que la home ES (convertir visitas en cotizaciones),
+// para el público angloparlante. La guía completa de estructura y decisiones
+// (hero + QuoteWidget, señales de confianza, preview de flota, reseñas, CTA)
+// está en src/pages/index.astro — léela primero; aquí solo va lo que cambia.
+//
+// Render: ESTÁTICA, igual que la ES (sin `prerender = false`).
+//
+// DIFERENCIAS vs src/pages/index.astro (lista exacta — todo lo demás es
+// idéntico, sección por sección):
+// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`. Todos los
+//    textos salen de las MISMAS claves de src/i18n/ui.ts (home.hero.title,
+//    home.trust.*, etc.): la traducción vive en ui.ts, NUNCA en esta página.
+// 2. `alternateUrl="/"` (apunta a la home ES). El canonical lo arma el layout
+//    con la URL actual → apunta a /en/. Así hreflang queda simétrico: /
+//    declara /en/ como alterna y /en/ declara /.
+// 3. `<QuoteWidget client:load lang="en" />` — la isla recibe la prop lang y
+//    con ella resuelve sus textos y el destino del wizard (/en/book). Lo mismo
+//    aplica para cualquier otra isla que montes en esta página.
+// 4. Los links internos del preview de flota van a /en/fleet y
+//    /en/fleet/[slug] (no a /flota): resuélvelos con el helper
+//    getLocalizedPath(..., 'en') de src/i18n/utils.ts.
+// 5. Los imports relativos suben un nivel: '../layouts/...' pasa a
+//    '../../layouts/...', '../components/...' a '../../components/...'.
+//
+// NOTA DE MANTENIMIENTO: esta página es estructuralmente idéntica a la ES.
+// Si cambias una sección en una, cambia la otra en el mismo commit. Si la
+// duplicación se vuelve molesta, extrae las secciones grandes a componentes
+// .astro compartidos que reciban `lang` por prop — TrustSignals es el primer
+// candidato (markup + t(), cero lógica) — y deja ambas páginas como pura
+// composición de secciones.
+//
+// ERRORES COMUNES DEL ESPEJO:
+// - alternateUrl apuntando a /en/ o a otra ruta → rompe hreflang; aquí
+//   SIEMPRE es "/" (la home ES). Verifica el <link rel="alternate"> generado.
+// - Hardcodear textos en inglés en el template → la fuente única es ui.ts;
+//   un string suelto aquí se desincroniza del ES en la primera edición.
+// - Cambiar la estructura (orden de secciones, CTAs) solo en este idioma →
+//   las dos versiones deben diferir SOLO en textos.
+// - Traducir slugs o paths de API → los endpoints /api/* NO tienen versión EN
+//   (/api/quote es /api/quote desde cualquier idioma); el idioma viaja en el
+//   body del request o en las props de las islas.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: idéntico al de src/pages/index.astro. Cambian solo:
+     1. <BaseLayout lang="en" title={...} description={...} alternateUrl="/">
+     2. <QuoteWidget client:load lang="en" /> dentro del hero <section>
+     3. Todo texto: t('home.hero.title') etc. con useTranslations('en')
+     4. Links internos prefijados a /en/... vía getLocalizedPath (ver punto 4
+        del frontmatter)
+     Las secciones b–e (confianza, preview de flota, reseñas, CTA WhatsApp)
+     se copian tal cual de la guía ES — mismos SVG inline, mismo orden.
+     ========================================================================== -->

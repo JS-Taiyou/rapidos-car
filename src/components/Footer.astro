@@ -1,0 +1,70 @@
+---
+// ============================================================================
+// COMPONENTE: Footer — pie del sitio público
+// ============================================================================
+// PROPÓSITO: cerrar cada página con los datos del negocio (contacto,
+// horario, dirección), links secundarios y créditos. Lo monta BaseLayout;
+// las páginas no lo importan directamente.
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * CERO JavaScript: el footer es contenido, no interacción (§2.1). Sus
+//   "acciones" son anchors con protocolos nativos: tel:, mailto: y wa.me.
+// * Repetir teléfono y dirección VISIBLES aquí aunque ya estén en /contacto:
+//   el schema LocalBusiness del layout se valida contra contenido visible;
+//   teléfono/dirección presentes en TODAS las páginas refuerzan el SEO
+//   local (spec §6). Opcional: envolver el bloque de dirección con
+//   microdatos (itemscope/itemtype LocalBusiness) como refuerzo al JSON-LD.
+// * NAP consistente (Name-Address-Phone): el teléfono/dirección de aquí
+//   deben ser IDÉNTICOS a los de /contacto y al JSON-LD del layout —
+//   Google desconfía de negocios con datos que difieren entre páginas.
+// * Todo el texto vía t(): el espejo EN monta este mismo archivo con
+//   lang="en".
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. Props: interface Props { lang: Lang }; obtener `t` con
+//    useTranslations(lang) e importar getLocalizedPath de '../i18n/utils' y
+//    buildWhatsAppUrl de '../lib/whatsapp'.
+// 2. Estructura en 3-4 columnas (grid, apiladas en mobile):
+//    a. MARCA: logo (el mismo SVG del Header — si lo repites una tercera
+//       vez, extráelo a Logo.astro) + tagline t('footer.tagline').
+//    b. CONTACTO: teléfono con <a href="tel:+5219990000000"> (href sin
+//       espacios, texto formateado para humanos), WhatsApp con
+//       buildWhatsAppUrl(t('footer.whatsappMessage')), email con mailto:,
+//       horario t('footer.hours'). Datos reales del negocio (mismo teléfono
+//       que irá en el JSON-LD del layout).
+//    c. NAVEGACIÓN: links secundarios desde un array {key, path} como el
+//       del Header. El footer suele incluir también /reservar; si la lista
+//       difiere de la del Header, declara la suya propia y documéntalo —
+//       no la "reutilices" forzada.
+//    d. DIRECCIÓN: calle, colonia, Mérida, Yucatán, MX + link "cómo llegar"
+//       a la URL pública de Google Maps. SIN iframe aquí: el mapa pesado va
+//       solo en /ubicaciones y /contacto (no cargarlo en todas las páginas).
+// 3. Barra inferior: © año + t('footer.rights') + créditos. El año con
+//    new Date().getFullYear() en el frontmatter — lo único "dinámico" y es
+//    gratis en build/SSR.
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Props: { lang: Lang }. Consume: useTranslations, getLocalizedPath,
+// buildWhatsAppUrl. Sin slots, sin JS. Lo monta BaseLayout.
+//
+// ERRORES COMUNES
+// - Teléfonos distintos entre footer, contacto y JSON-LD → NAP roto y baja
+//   el ranking local.
+// - Iframe de Maps en el footer → carga pesada en TODAS las páginas.
+// - Texto hardcodeado → rompe el espejo EN.
+// - Lista de links duplicada del Header a mano → se desincroniza; declara
+//   arrays separados solo si el contenido realmente difiere.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: <footer> con fondo oscuro, grid de columnas a–d (marca,
+     contacto, navegación, dirección) y barra inferior de copyright.
+     Anchors tel:/mailto:/wa.me; ningún botón con JS.
+     ========================================================================== -->

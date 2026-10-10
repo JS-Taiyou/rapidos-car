@@ -1,0 +1,188 @@
+-- ============================================================================
+-- MIGRACIÓN 001 — Esquema inicial de Rapidoz Rental
+-- ============================================================================
+-- Propósito: crear el modelo de datos completo del MVP. La fuente de verdad
+-- del diseño está en docs/ARCHITECTURE.md §3; esta guía traduce ese diseño a
+-- instrucciones SQL concretas.
+--
+-- Cómo se aplica: `deno task db:migrate` (scripts/migrate.ts lee este archivo
+-- y lo ejecuta dentro de una transacción). Cada migración es idempotente en
+-- intención pero se registra en `_migrations` para no reaplicarse.
+--
+-- Convenciones (no negociables, ver ARCHITECTURE §2.13):
+--   * Dinero: enteros en centavos, columnas `*_cents`.
+--   * Rangos de tiempo: `tstzrange` (nunca dos columnas start/end sueltas).
+--   * Zona horaria del negocio: America/Merida (CST fijo, sin DST).
+-- ============================================================================
+
+
+-- --------------------------------------------------------------------------
+-- PASO 0 — Extensiones
+-- --------------------------------------------------------------------------
+-- Escribe: CREATE EXTENSION IF NOT EXISTS btree_gist;
+-- Por qué: la constraint de exclusión del paso 4 compara un bigint
+-- (vehicle_id) con `=` y un rango con `&&`; GiST necesita btree_gist para
+-- combinar ambos en un solo índice de exclusión. Sin esto, el EXCLUDE falla
+-- con "data type bigint has no default operator class".
+
+
+-- --------------------------------------------------------------------------
+-- PASO 1 — Tabla `_migrations` (control del migrador)
+-- --------------------------------------------------------------------------
+-- Columnas: id serial PK, name text UNIQUE NOT NULL, applied_at timestamptz
+-- NOT NULL DEFAULT now().
+-- Por qué: scripts/migrate.ts consulta esta tabla para saber qué archivos de
+-- db/migrations/ ya se aplicaron. Es la convención mínima de cualquier
+-- migrador casero; sin ella no hay corridas repetibles.
+
+
+-- --------------------------------------------------------------------------
+-- PASO 2 — Catálogo: `vehicle_models` y `vehicles`
+-- --------------------------------------------------------------------------
+-- vehicle_models (lo que el cliente ve y cotiza):
+--   id              bigserial PK
+--   slug            text UNIQUE NOT NULL        -- para URLs: /flota/versa
+--   name            text NOT NULL               -- "Nissan Versa 2023"
+--   category        text NOT NULL               -- 'compact' | 'suv' | 'van'...
+--   transmission    text NOT NULL               -- 'automatic' | 'manual'
+--   seats           smallint NOT NULL
+--   luggage         smallint NOT NULL           -- maletas grandes que caben
+--   daily_rate_cents integer NOT NULL           -- tarifa base por día
+--   photos          text[] NOT NULL DEFAULT '{}'-- rutas bajo /public o R2
+--   active          boolean NOT NULL DEFAULT true -- borrado lógico del catálogo
+--   created_at      timestamptz NOT NULL DEFAULT now()
+--
+-- vehicles (unidades físicas — el inventario real):
+--   id              bigserial PK
+--   model_id        bigint NOT NULL REFERENCES vehicle_models(id)
+--   plate           text UNIQUE NOT NULL        -- placa: identidad de la unidad
+--   status          text NOT NULL DEFAULT 'active'  -- 'active'|'maintenance'|'retired'
+--   created_at      timestamptz NOT NULL DEFAULT now()
+--   CHECK (status IN ('active','maintenance','retired'))
+--
+-- Índice: vehicles(model_id) — la búsqueda de unidades libres filtra por modelo.
+--
+-- Por qué dos niveles (justificación clave): el cliente cotiza por MODELO
+-- ("quedan 2 Versa"), pero los solapes, bloqueos de taller y buffers de
+-- rotación ocurren por UNIDAD física (spec §3.3 "per-unit inventory"). Un
+-- contador de "cantidad" no puede expresar "el Kicks placa XYZ está en el
+-- taller del 10 al 12".
+
+
+-- --------------------------------------------------------------------------
+-- PASO 3 — Reglas de negocio: `seasons`, `extras`, `settings`
+-- --------------------------------------------------------------------------
+-- seasons (multiplicadores de temporada para el motor de precios):
+--   id bigserial PK, name text NOT NULL,      -- 'Temporada alta dic-ene'
+--   period daterange NOT NULL,                -- rango de fechas calendario
+--   multiplier numeric(4,2) NOT NULL          -- 1.30 = +30%
+-- Índice GiST sobre period: el motor pregunta "qué temporada contiene el
+-- día X" con el operador `@>`; el GiST lo hace barato.
+-- OJO: daterange es por fecha calendario (no instante), deliberadamente:
+-- "Semana Santa" es un concepto de calendario, no de horas.
+--
+-- extras (catálogo de adicionales):
+--   id bigserial PK, name text UNIQUE NOT NULL,  -- 'Silla de bebé'
+--   price_cents integer NOT NULL,
+--   per text NOT NULL,                           -- 'day' | 'rental'
+--   active boolean NOT NULL DEFAULT true,
+--   CHECK (per IN ('day','rental'))
+-- Por qué snapshot en bookings.extras (paso 4): si mañana cambias el precio
+-- de la silla, las reservaciones ya hechas NO deben cambiar de total.
+--
+-- settings (clave/valor tipado por convención de nombre):
+--   key text PK, value jsonb NOT NULL
+-- Semillas obligatorias (las inserta scripts/seed.ts):
+--   'turnaround_buffer_minutes'  -> 120   (spec §3.3: buffer entre rentas)
+--   'delivery_zones'             -> [{"zone":"airport","fee_cents":0},
+--                                     {"zone":"centro","fee_cents":15000}, ...]
+--   'iva_rate'                   -> 0.16
+--   'long_rental_discounts'      -> [{"min_days":7,"pct":10},{"min_days":30,"pct":20}]
+--   'whatsapp_staff_number'      -> "5219990000000"
+-- Por qué jsonb clave/valor y no columnas: el admin de settings es fase 2
+-- (spec §4.5); mientras tanto puedes editar valores con SQL sin migrar.
+
+
+-- --------------------------------------------------------------------------
+-- PASO 4 — El corazón: `bookings` + constraint anti-doble-reservación
+-- --------------------------------------------------------------------------
+-- bookings:
+--   id              bigserial PK
+--   code            text UNIQUE NOT NULL        -- 'RPZ-4F7K2Q' legible por teléfono
+--   kind            text NOT NULL DEFAULT 'rental'  -- 'rental' | 'block'
+--   vehicle_id      bigint NOT NULL REFERENCES vehicles(id)
+--   customer_name   text                        -- NULL si kind='block'
+--   customer_email  text
+--   customer_phone  text
+--   flight_number   text                        -- fase 2: tracking de vuelo
+--   period          tstzrange NOT NULL          -- [entrega, devolución)
+--   pickup_zone     text NOT NULL               -- llave de delivery_zones
+--   extras          jsonb NOT NULL DEFAULT '[]' -- SNAPSHOT: [{name,price_cents,per,qty}]
+--   total_cents     integer NOT NULL            -- total calculado en servidor
+--   deposit_type    text NOT NULL               -- 'deposit' | 'on_pickup'
+--   status          text NOT NULL DEFAULT 'confirmed'
+--                   -- pipeline: quoted→confirmed→active→completed|cancelled
+--   notes           text                        -- notas internas del staff
+--   pickup_reminder_sent boolean NOT NULL DEFAULT false  -- fase 2 (spec §5.1)
+--   return_reminder_sent boolean NOT NULL DEFAULT false  -- fase 2
+--   created_at      timestamptz NOT NULL DEFAULT now()
+--   CHECK (kind IN ('rental','block'))
+--   CHECK (deposit_type IN ('deposit','on_pickup'))
+--   CHECK (status IN ('quoted','confirmed','active','completed','cancelled'))
+--   CHECK (kind='block' OR customer_name IS NOT NULL)
+--
+-- LA CONSTRAINT ESTRELLA (escríbela exactamente así):
+--   ALTER TABLE bookings ADD CONSTRAINT no_overlap EXCLUDE USING gist (
+--     vehicle_id WITH =,
+--     period      WITH &&
+--   ) WHERE (status IN ('confirmed','active'));
+--
+-- Por qué es la pieza central (spec §2): hace IMPOSIBLE persistir dos rentas
+-- confirmadas/activas solapadas de la misma unidad, sin importar carreras
+-- entre requests o bugs del endpoint. La app intenta insertar y, si Postgres
+-- lanza SQLSTATE 23P01 (exclusion_violation), traduce a HTTP 409. La
+-- condición WHERE parcial es deliberada: canceladas/completadas no bloquean
+-- (historial libre), y los 'quoted' efímeros no apartan inventario.
+--
+-- Por qué kind='block' vive aquí (ARCHITECTURE §2.10): un bloqueo de taller
+-- es un periodo en que la unidad no está disponible — exactamente lo mismo
+-- que modela esta tabla. Al reutilizarla, la constraint cubre los bloqueos
+-- GRATIS y el calendario del admin lee una sola fuente.
+--
+-- Índices adicionales:
+--   bookings(period) GiST ya lo crea el EXCLUDE; agrega btree sobre
+--   (status) y ((lower(period))) para el dashboard ("entregas de hoy").
+
+
+-- --------------------------------------------------------------------------
+-- PASO 5 — Auth de admin: `admin_users` y `sessions`
+-- --------------------------------------------------------------------------
+-- admin_users:
+--   id bigserial PK, email text UNIQUE NOT NULL,
+--   password_hash text NOT NULL    -- formato 'pbkdf2:iter:sal:hash' (src/lib/auth.ts)
+--   created_at timestamptz NOT NULL DEFAULT now()
+-- Un solo renglón (el dueño). Si algún día hay más staff, la tabla ya escala.
+--
+-- sessions:
+--   token_hash  text PK             -- SHA-256 hex del token en la cookie
+--   user_id     bigint NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE
+--   expires_at  timestamptz NOT NULL
+--   created_at  timestamptz NOT NULL DEFAULT now()
+-- Índice sobre expires_at + borrado de expiradas al validar (limpieza perezosa:
+-- no hay cron en MVP; cada login/validación borra las vencidas, gratis).
+-- Por qué hash del token y no el token plano: si alguien lee la BD, no puede
+-- suplantar sesiones activas. Por qué sesiones en BD y no JWT: revocables
+-- (logout real) y cero configuración (ARCHITECTURE §2.11).
+
+
+-- --------------------------------------------------------------------------
+-- ERRORES COMUNES AL ESCRIBIR ESTA MIGRACIÓN
+-- --------------------------------------------------------------------------
+-- 1. Olvidar btree_gist → el EXCLUDE falla con error de operator class.
+-- 2. Usar `timestamp` en vez de `timestamptz` → el motor de solapes compara
+--    instantes; sin tz, "las 10am" de dos días ambiguos rompen el buffer.
+-- 3. Modelar start/end como dos columnas → pierdes los operadores de rango
+--    (&&, @>) y el EXCLUDE; es re-implementar solapes a mano.
+-- 4. Poner el EXCLUDE sin WHERE → las canceladas bloquearían para siempre.
+-- 5. Floats para dinero → redondeos; centavos enteros, siempre.
+-- ============================================================================

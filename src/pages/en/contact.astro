@@ -1,0 +1,51 @@
+---
+// ============================================================================
+// PÁGINA: Contacto EN (/en/contact) — estática — ESPEJO de
+// src/pages/contacto.astro
+// ============================================================================
+// PROPÓSITO: los mismos canales de contacto (WhatsApp, teléfono, mapa) para
+// el público angloparlante. La guía completa (tarjetas de canal, mapa
+// embebido, horarios) está en src/pages/contacto.astro — léela primero; aquí
+// solo va lo que cambia.
+//
+// Render: ESTÁTICA, igual que la ES.
+//
+// DIFERENCIAS vs src/pages/contacto.astro (lista exacta — todo lo demás es
+// idéntico):
+// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`;
+//    `alternateUrl="/contacto"`; canonical → /en/contact.
+// 2. El mensaje pre-llenado de WhatsApp va en inglés: "Hi, I'd like a quote
+//    for a rental" (clave contact.whatsapp.prefill en ui.ts — el helper
+//    buildWhatsAppUrl de src/lib/whatsapp.ts recibe el texto YA traducido;
+//    él no traduce). El número de WhatsApp es el mismo en ambos idiomas.
+// 3. Teléfono, email, dirección y mapa embebido son DATOS: idénticos en
+//    ambos idiomas. No los dupliques "traduciéndolos" — una sola fuente
+//    (settings o constantes compartidas que ambas páginas importan).
+// 4. Los imports relativos suben un nivel: '../../layouts/...',
+//    '../../lib/whatsapp.ts', etc.
+//
+// ERRORES COMUNES DEL ESPEJO:
+// - alternateUrl apuntando a /en/contact o / → rompe hreflang; aquí SIEMPRE
+//   es "/contacto". Verifica el <link rel="alternate"> generado.
+// - Hardcodear textos en inglés en el template (etiquetas, horarios, el
+//   mensaje de WhatsApp) → la fuente única es ui.ts; un string suelto se
+//   desincroniza del ES en la primera edición.
+// - Cambiar la estructura (qué canales y en qué orden) solo en este idioma →
+//   las dos versiones deben diferir SOLO en textos.
+// - Duplicar el teléfono/email "para la versión EN" → son datos únicos del
+//   negocio; si cambian, se actualizan en UN lugar (punto 3 del frontmatter).
+// - Traducir paths de API → los endpoints /api/* NO tienen versión EN; el
+//   idioma viaja en el body del request o en las props de las islas.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: idéntico al de src/pages/contacto.astro. Cambian solo:
+     1. <BaseLayout lang="en" title={...} description={...}
+        alternateUrl="/contacto">
+     2. Textos de UI con t('contact.*') vía useTranslations('en')
+     3. Botón WhatsApp: buildWhatsAppUrl(t('contact.whatsapp.prefill')) con
+        el mensaje en inglés (punto 2 del frontmatter)
+     Teléfono, email, dirección y mapa se renderizan idénticos — son datos,
+     no contenido editorial.
+     ========================================================================== -->

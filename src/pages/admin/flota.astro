@@ -1,0 +1,79 @@
+---
+// ============================================================================
+// PÁGINA: Admin — Flota (/admin/flota) — SSR (shell de isla)
+// ============================================================================
+// PROPÓSITO
+// ----------------------------------------------------------------------------
+// CRUD del inventario: modelos del catálogo (lo que el cliente cotiza),
+// unidades físicas con placa (lo que se entrega), tarifas y fotos
+// (spec §4.4; modelo de datos en ARCHITECTURE §3).
+
+// export const prerender = false;   // descomenta al instalar el adapter — ARCHITECTURE §6
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * Misma filosofía que /admin/reservaciones: la página es el SHELL que
+//   monta la isla FleetManager; el frontmatter solo hace la guardia. Los
+//   datos los fetchea la isla contra /api/admin/vehicles — edición reactiva,
+//   4 usuarios internos: SSR + hidratación sería complejidad innecesaria.
+// * Fotos del MVP = URLs, no uploads: el campo photos (text[]) se llena con
+//   un textarea de la isla (una URL por línea) apuntando a un bucket público
+//   o a archivos bajo /public.
+//   Por qué no subida real a R2 todavía: multipart upload + storage + firmas
+//   es medio proyecto aparte y bloquearía el lanzamiento; las URLs bastan
+//   para salir, y migrar después no toca el schema (fase 2, ARCHITECTURE §7).
+// * Borrado LÓGICO siempre: modelos con active=false y unidades con
+//   status='retired'. Nunca DELETE físico: las bookings históricas
+//   referencian vehicle_id.
+// * meta robots noindex (CRÍTICO): herramienta interna, no debe indexarse.
+//   Shell mínimo propio, NO BaseLayout público (sin SEO/Header/Footer).
+//
+// ----------------------------------------------------------------------------
+// PASOS
+// ----------------------------------------------------------------------------
+// 1. GUARDIA PRIMERO (ARCHITECTURE §2.3): `requireAdmin(Astro)` de
+//    '../../lib/auth.ts' como primera línea efectiva. Sin sesión →
+//    /admin/login. Es lo ÚNICO del frontmatter además de los imports.
+// 2. Importar '../../styles/global.css' (Tailwind v4).
+// 3. Importar `FleetManager` desde
+//    '../../components/react/admin/FleetManager.tsx'.
+// 4. Template (shell mínimo, ver bloque inferior):
+//    a. <html lang="es">, <head> con charset, viewport,
+//       <meta name="robots" content="noindex, nofollow"> y
+//       <title>Flota — Rapidoz Admin</title>.
+//    b. <nav> interno: el componente AdminNav.astro si ya lo extrajiste (ver
+//       reservaciones.astro, paso 4b); si no, copia el patrón del dashboard
+//       una última vez.
+//    c. Encabezado <h1> "Flota" y debajo <FleetManager client:load /> a
+//       ancho completo. client:load: esta página ES la herramienta.
+// 5. La isla incluye (ver su propia guía): tabla de modelos con tarifa
+//    (daily_rate_cents — recuerda: centavos enteros, ARCHITECTURE §2.13),
+//    alta y edición de modelos, alta/baja lógica de unidades por placa, y el
+//    textarea de URLs de fotos descrito arriba.
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Consume: requireAdmin (../../lib/auth.ts) y la isla FleetManager.
+// La isla habla con GET/POST /api/admin/vehicles y PATCH/DELETE
+// /api/admin/vehicles/[id] (DELETE = borrado lógico). La página NO toca la
+// BD directamente.
+//
+// ----------------------------------------------------------------------------
+// ERRORES COMUNES
+// ----------------------------------------------------------------------------
+// * Intentar multipart upload en el MVP: es fase 2; URLs primero.
+// * DELETE físico de una unidad con historial: revienta FKs de bookings o,
+//   peor, pierde el historial. Usa status='retired'.
+// * Guardar tarifas en pesos con decimales: todo dinero es *_cents entero.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE (shell de isla):
+     1. <html lang="es"> + <head> con noindex y <title>Flota — Rapidoz
+        Admin</title>.
+     2. <nav> interno (AdminNav.astro cuando exista).
+     3. <h1>Flota</h1> + <FleetManager client:load />.
+     ========================================================================== -->

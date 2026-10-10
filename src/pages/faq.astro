@@ -1,0 +1,81 @@
+---
+// ============================================================================
+// PÁGINA: FAQ ES (/faq) — estática
+// ============================================================================
+// PROPÓSITO: resolver las objeciones que hoy llegan por WhatsApp
+// (requisitos, depósitos, seguros) ANTES de cotizar — cada duda respondida
+// es un mensaje menos para el staff y una venta más rápida (spec §3.5).
+//
+// ----------------------------------------------------------------------------
+// DECISIONES
+// ----------------------------------------------------------------------------
+// * <details>/<summary> NATIVOS para el acordeón — decisión fuerte
+//   (ARCHITECTURE §2.7): accesible de fábrica (teclado, screen readers,
+//   estados aria incluidos), indexable (las respuestas están en el HTML
+//   inicial y Google las lee) y SIN una línea de JS. Un acordeón React
+//   sería una isla solo para esconder/mostrar texto: el anti-ejemplo de la
+//   filosofía islas.
+// * FAQPage JSON-LD vía slot name="head" del layout: las mismas preguntas/
+//   respuestas en schema → rich results en Google (spec §6). REGLA: el
+//   JSON-LD debe coincidir con el contenido visible; genera AMBOS desde el
+//   MISMO array del frontmatter para que nunca diverjan.
+// * Contenido como datos: array de {qKey, aKey} en el frontmatter; los
+//   textos viven en ui.ts bajo faq.* (bilingüe). Respuestas CORTAS (2-4
+//   líneas): el detalle fino lo cierra el staff por WhatsApp.
+//
+// ----------------------------------------------------------------------------
+// PASOS 1 — contenido: redacta estas 9 preguntas reales del negocio
+// ----------------------------------------------------------------------------
+// 1. faq.license — ¿Qué licencia necesito? (vigente, antigüedad mínima 1
+//    año; licencias extranjeras aceptadas con pasaporte).
+// 2. faq.deposit — ¿Cuánto es el depósito y cómo se devuelve? (monto por
+//    categoría, tarjeta o efectivo, devolución al entregar sin daños).
+// 3. faq.insurance — ¿Qué seguro incluye la tarifa? (cobertura y deducible
+//    en MXN; explicar qué NO cubre).
+// 4. faq.minAge — ¿Edad mínima para rentar? (21 o 25; cargo por conductor
+//    joven si aplica — confirmar con el negocio).
+// 5. faq.secondDriver — ¿Puedo agregar un segundo conductor? (gratis o con
+//    costo; también presenta licencia).
+// 6. faq.travel — ¿Puedo salir de Yucatán? (Campeche/Quintana Roo
+//    permitidos; avisar al reservar por la póliza).
+// 7. faq.cancel — ¿Política de cancelación? (gratis hasta X horas antes;
+//    cómo se devuelve el depósito).
+// 8. faq.payment — ¿Qué métodos de pago aceptan? (efectivo, transferencia,
+//    tarjeta en mostrador; cobro en línea es fase 2 — ARCHITECTURE §7).
+// 9. faq.flightDelay — ¿Qué pasa si mi vuelo se retrasa? (se pide
+//    flight_number al reservar; la entrega se reprograma sin costo — §5).
+// Instrucción por pregunta: respuesta bilingüe corta, tono directo, sin
+// letra chica; si un dato no está confirmado (montos, edades, horarios),
+// marca la clave con TODO en ui.ts en vez de inventarlo.
+//
+// ----------------------------------------------------------------------------
+// PASOS 2 — implementación
+// ----------------------------------------------------------------------------
+// 1. Imports: BaseLayout + useTranslations. Declarar el array de claves
+//    (el orden de arriba = orden visual, de más a menos frecuente).
+// 2. Template: lista de <details> con <summary> estilizado con Tailwind
+//    (cursor-pointer, font-medium, chevrón con marker: o ::after y la
+//    variante open:) y la respuesta en un <p> interno.
+// 3. JSON-LD: construir el objeto FAQPage en el frontmatter ITERANDO el
+//    mismo array (mainEntity de Question con acceptedAnswer) e inyectarlo
+//    con el slot name="head" — así contenido y schema no se desincronizan.
+//
+// ----------------------------------------------------------------------------
+// CONTRATO
+// ----------------------------------------------------------------------------
+// Consume: BaseLayout (slot head), i18n (claves faq.* — agregarlas a
+// ui.ts). Espejo EN: /en/faq con las mismas claves. Sin JS, sin BD.
+//
+// ERRORES COMUNES
+// - Acordeón con useState → isla para mostrar texto; details/summary basta.
+// - JSON-LD escrito a mano separado del contenido → diverge y Google
+//   penaliza el rich result.
+// - Respuestas de 3 párrafos → nadie las lee; cortas y a WhatsApp para más.
+// - Inventar montos o deducibles → el negocio confirma; TODO en ui.ts.
+// ============================================================================
+---
+
+<!-- =========================================================================
+     TEMPLATE: BaseLayout > h1 + lista de 9 <details> (summary estilizado +
+     respuesta en <p>) + JSON-LD FAQPage inyectado con slot name="head".
+     ========================================================================== -->
