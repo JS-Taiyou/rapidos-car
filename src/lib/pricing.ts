@@ -14,7 +14,7 @@
 //   Por qué: /api/quote cotiza TODOS los modelos a la vez; si cada llamada a
 //   computeQuote consultara la BD serían N+1 queries, y el free tier cuenta
 //   cada operación (spec §2). El endpoint carga las 3 tablas UNA vez y las
-//   inyecta. Además, pura = testeable con `deno test` sin levantar Postgres.
+//   inyecta. Además, pura = testeable con `vitest` sin levantar Postgres.
 // * Dinero en CENTAVOS enteros siempre (ARCHITECTURE §2.13): nada de floats
 //   en el desglose. Los multiplicadores numeric de temporada se aplican y se
 //   redondean POR DÍA con Math.round; el IVA y el depósito se calculan sobre

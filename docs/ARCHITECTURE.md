@@ -34,7 +34,7 @@ Admin (SSR, cookie de sesión, español solamente — es herramienta interna):
 | `/admin/reservaciones`    | Pipeline de estados, vista lista/calendario, captura manual y bloqueos |
 | `/admin/flota`            | CRUD de modelos/unidades, tarifas, fotos |
 
-API (endpoints Astro, SSR):
+API (endpoints Astro en `src/pages/api/`, SSR sobre Node — §2.14):
 
 | Endpoint                        | Métodos | Descripción |
 |---------------------------------|---------|-------------|
@@ -63,10 +63,11 @@ menos que el build). Flota, detalle de auto, admin y API llevan
 `export const prerender = false`.
 **Por qué:** las páginas de flota leen tarifas/unidades de la BD; el admin es
 siempre fresco. El resto se sirve como HTML inmutable, gratis y rápido.
-**Consecuencia de tooling:** al activar rutas SSR hay que instalar un adapter
-(`@deno/astro-adapter`, spec §2) — ver §6. Sin adapter el `astro build` falla;
-en `astro dev` las rutas SSR funcionan sin él, así que el orden importa:
-instala el adapter *antes* de descomentar el primer `prerender = false`.
+**Consecuencia de tooling:** al activar rutas SSR hay que instalar el adapter
+`@astrojs/node` en modo `standalone` (§2.14) — ver §6. Sin adapter el
+`astro build` falla; en `astro dev` las rutas SSR funcionan sin él, así que el
+orden importa: instala el adapter *antes* de descomentar el primer
+`prerender = false`.
 
 ### 2.3 Guardia de admin por página, sin middleware
 No hay `src/middleware.ts`: cada página `/admin/*` llama en su frontmatter a
@@ -79,22 +80,27 @@ panel crece, migrar a middleware es trivial (mover la llamada).
 
 ### 2.4 Sin ORM: `postgres.js` + SQL a mano
 Capa de datos en `src/lib/db.ts` con el paquete `postgres` (postgres.js);
-migraciones SQL numeradas en `db/migrations/` aplicadas con un script Deno.
+migraciones SQL numeradas en `db/migrations/` aplicadas con un script Node
+(§2.5).
 **Por qué:** (a) el spec ya advierte que la constraint de exclusión
 anti-doble-reservación requiere SQL crudo de todas formas; (b) la lógica
 estrella del proyecto (solapes de rangos, precios por reglas) *es* SQL y es la
 pieza de portafolio (spec §9) — conviene que se lea sin capas de abstracción;
-(c) `postgres` corre idéntico en Node (astro dev) y en Deno (scripts/Deploy)
-vía `npm:postgres`, sin toolchain extra. Drizzle/Kysely son alternativas
-válidas si luego quieres tipos generados.
+(c) `postgres` es un paquete npm puro que corre nativo en Node 22 (app, API y
+scripts usan el MISMO driver, un solo SQL y una sola forma de parametrizar en
+todo el proyecto). Drizzle/Kysely son alternativas válidas si luego quieres
+tipos generados.
 
-### 2.5 Deno para scripts de terminal, npm para el dev server
-`astro dev` corre con Node/npm (es lo que el template y el adapter asumen).
-Los scripts de BD (`scripts/migrate.ts`, `scripts/seed.ts`) corren con
-`deno task db:migrate` / `deno task db:seed` (definidos en `deno.json`).
-**Por qué:** aprovecha el Deno ya instalado sin pelear con el toolchain de
-Vite/Astro bajo Deno; los scripts importan el mismo `npm:postgres` y las
-mismas variables de entorno que la app.
+### 2.5 Scripts de BD con Node + `tsx`, todo bajo npm
+Un solo runtime: **Node 22** para dev server, API, SSR y scripts. Los scripts
+de BD (`scripts/migrate.ts`, `scripts/seed.ts`) corren con
+`npm run db:migrate` / `npm run db:seed` (scripts de `package.json` que
+invocan `node --env-file=.env --import tsx scripts/…`).
+**Por qué:** Deno quedó fuera del stack (§2.14); mantener un segundo runtime
+solo para dos scripts era complejidad sin beneficio. `tsx` ejecuta TypeScript
+directo en Node sin paso de build, y `--env-file=.env` (nativo desde Node
+20.6) inyecta las mismas variables que la app — cero dependencias extra de
+configuración.
 
 ### 2.6 i18n manual con árbol `/en/`, sin routing i18n de Astro
 Cada página ES tiene su espejo EN como archivo separado; los textos viven en
@@ -145,11 +151,10 @@ y no hay que sincronizar dos tablas.
 ### 2.11 Sesiones en BD + PBKDF2 con Web Crypto
 Login con cookie httpOnly cuyo valor es un token aleatorio; en la tabla
 `sessions` se guarda el *hash* del token y su expiración. Passwords con PBKDF2
-(vía Web Crypto API, presente en Node 22 y Deno) en formato
+(vía Web Crypto API, presente en Node 22 como `globalThis.crypto`) en formato
 `pbkdf2:iteraciones:sal:hash` hex.
-**Por qué:** cero dependencias cripto, corre igual en ambos runtimes, y las
-sesiones en BD son revocables (logout real, expulsión). JWT stateless sería
-innecesario para un solo admin.
+**Por qué:** cero dependencias cripto, y las sesiones en BD son revocables
+(logout real, expulsión). JWT stateless sería innecesario para un solo admin.
 
 ### 2.12 Zod en la frontera API
 Esquemas zod en `src/lib/validation.ts` compartidos entre islas (react-hook-form)
@@ -164,6 +169,41 @@ DST — spec §5.1).
 **Por qué:** floats = errores de redondeo en precios; `timestamptz` +
 `tstzrange` habilita la constraint de exclusión y los operadores de solape
 (`&&`) que son el corazón del motor de disponibilidad.
+
+### 2.14 Astro para todo: un solo servidor Node, sin framework extra
+El runtime es **Node 22** (Deno quedó fuera del stack) y el servidor de
+producción es el que genera el adapter **`@astrojs/node` en modo
+`standalone`**: `npm run build` produce `dist/server/entry.mjs`, un servidor
+Node autocontenido que sirve estáticos, páginas SSR y los endpoints
+`/api/*` (archivos de `src/pages/api/`) en UN solo proceso.
+**Por qué NO Fastify/Express/Nest:** se evaluó meter un framework HTTP
+dedicado para la API y se descartó — son 7 endpoints y un admin: (a) Astro ya
+da routing por archivos, cookies, zod en la frontera y API+SSR en el mismo
+proceso con cero acoplamiento extra; (b) un framework paralelo duplica la
+capa HTTP (dos sistemas de routing, dos manejos de cookies, el SSR montado
+como middleware con escape hatches) y empeora el DX (en dev, `astro dev`
+sirve sitio y API juntos con hot reload; con framework aparte tocaría
+build+start para iterar); (c) el throughput extra es irrelevante al volumen
+del negocio. La lógica de negocio vive en `src/lib/*` y es agnóstica del
+framework: si la API algún día crece (app móvil, consumidores externos),
+migrar a Fastify es reescribir los handlers delgados de `src/pages/api/`, no
+la lógica — la puerta queda documentada y abierta.
+**Consecuencia:** un solo proceso = el singleton de `src/lib/db.ts` es único
+y compartido entre SSR y API, las islas llaman `/api/*` al mismo origen (cero
+CORS), y el despliegue es UNA unidad (§8).
+
+### 2.15 Supabase como host de PostgreSQL
+La capa de datos es PostgreSQL hospedado en **Supabase**: `DATABASE_URL` apunta
+al proyecto Supabase ( Settings → Database → Connection string ).
+**Por qué:** Postgres administrado con el feature set completo que el diseño
+necesita (`btree_gist`, `tstzrange`, `EXCLUDE`), free tier suficiente para el
+MVP y consola SQL cómoda para operar.
+**Reglas de conexión:** (a) el servidor Node de larga duración (§2.14) usa la
+**conexión directa** (puerto 5432) con pool chico (`max: 5`, ver `src/lib/db.ts`);
+(b) los scripts de migración/seed usan SIEMPRE la conexión directa — el pooler
+en modo transacción no garantiza que BEGIN/COMMIT caigan en la misma sesión;
+(c) si algún día se despliega serverless (§8), ahí sí: pooler de Supabase
+(puerto 6543, modo transaction) para no agotar conexiones con cold starts.
 
 ---
 
@@ -238,7 +278,7 @@ final sobre (subtotal + extras + entrega).
 
 - Todo archivo guía es **100% comentarios**: `//` en `.ts/.tsx`,
   `<!-- -->` en la parte template de `.astro`, `//` en su frontmatter, `--`
-  en `.sql`, `#` en `deno.json` no existe (JSON puro).
+  en `.sql`, `#` en `.env.example` y en archivos YAML/Dockerfile si aparecen.
 - Formato de cada guía: **Propósito** → **Decisiones** (por qué así) →
   **Pasos** numerados con nombres exactos (imports, funciones, tipos) →
   **Contrato** (qué expone o consume) → **Errores comunes**.
@@ -260,11 +300,12 @@ final sobre (subtotal + extras + entrega).
 ## 6. Puesta en marcha (cuando empieces a programar)
 
 ```bash
-# 1. Tailwind v4 + adapter Deno + utilidades
-npm i -D @tailwindcss/vite
-npm i @deno/astro-adapter postgres zod react-hook-form @hookform/resolvers
+# 1. Tailwind v4 + adapter Node + utilidades
+npm i -D @tailwindcss/vite tsx vitest
+npm i @astrojs/node postgres zod react-hook-form @hookform/resolvers
 
-# 2. astro.config.mjs: agregar adapter deno(), vite.plugins: [tailwindcss()],
+# 2. astro.config.mjs: agregar adapter node({ mode: 'standalone' }),
+#    vite.plugins: [tailwindcss()],
 #    y site: 'https://<dominio-temporal>' (necesario para canonical/hreflang)
 
 # 3. shadcn (genera src/components/ui y src/lib/utils.ts)
@@ -272,22 +313,23 @@ npx shadcn@latest init
 npx shadcn@latest add button input label select calendar popover dialog table badge card sonner
 
 # 4. Variables de entorno: copia .env.example a .env
-#    DATABASE_URL=postgres://kimi:kimi@localhost:5432/rapidcar
+#    DATABASE_URL = connection string DIRECTA de Supabase (puerto 5432)
 
-# 5. Base de datos (Deno)
-deno task db:migrate   # aplica db/migrations/*.sql
-deno task db:seed      # flota de ejemplo, extras, temporadas, admin
+# 5. Base de datos (Node + tsx; los scripts ya están en package.json)
+npm run db:migrate   # aplica db/migrations/*.sql
+npm run db:seed      # flota de ejemplo, extras, temporadas, admin
 
 # 6. Desarrollo
-npm run dev            # o: astro dev --background (ver AGENTS.md)
+npm run dev            # astro dev: sitio + SSR + API, todo en :4321
+                       # (o: astro dev --background, ver AGENTS.md)
 ```
 
 Orden sugerido de implementación (cada paso deja algo usable):
 
 1. `db/migrations/001_init.sql` + `scripts/migrate.ts` + `scripts/seed.ts`
-   → BD real con datos.
+   → BD real con datos (en Supabase o Postgres local).
 2. `src/lib/db.ts`, `availability.ts`, `pricing.ts`, `validation.ts` → el
-   motor, probable con `deno test` o logs en `/api/quote`.
+   motor, probable con `vitest` o logs en `/api/quote`.
 3. `BaseLayout` + `Header`/`Footer` + home ES → se ve el sitio.
 4. `QuoteWidget` → `/reservar` → `BookingFlow` + `/api/quote` +
    `/api/bookings` → **el funnel completo** (corazón del MVP).
@@ -298,8 +340,45 @@ Orden sugerido de implementación (cada paso deja algo usable):
 
 ## 7. Fuera de scope en esta iteración (fase 2 del spec)
 
-Pagos (Mercado Pago/Stripe), recordatorios 24 h (`Deno.cron` + UPDATE…
-RETURNING), tracking de vuelos, CRM completo, reportes, WhatsApp Business
-API, backups `pg_dump` → R2. El schema ya deja los campos
-(`pickup_reminder_sent`, `return_reminder_sent`, `flight_number`) para no
-migrar después.
+Pagos (Mercado Pago/Stripe), recordatorios 24 h (`node-cron` dentro del
+proceso Node del servidor + UPDATE…RETURNING, o un endpoint protegido
+disparado por un scheduler externo como EventBridge), tracking de vuelos, CRM
+completo, reportes, WhatsApp Business API, backups `pg_dump` → R2. El schema
+ya deja los campos (`pickup_reminder_sent`, `return_reminder_sent`,
+`flight_number`) para no migrar después.
+
+---
+
+## 8. Despliegue (Node, sin Deno Deploy)
+
+El artefacto desplegable es **un proceso Node** (§2.14): `npm run build`
+genera `dist/` (estáticos en `dist/client/`, servidor en
+`dist/server/entry.mjs` gracias al modo `standalone` de `@astrojs/node`) y el
+arranque es `node dist/server/entry.mjs` — estáticos, SSR y API en un solo
+proceso.
+
+**Opción recomendada — contenedor Docker en un host de procesos largos:**
+
+- AWS Fargate (ECS), Railway, Render o Fly.io. Un `Dockerfile` basado en
+  `node:22-slim`: `npm ci` → `npm run build` → `node dist/server/entry.mjs`.
+  Variables: `DATABASE_URL` y las `PUBLIC_*` (ver `.env.example`); el adapter
+  respeta `HOST`/`PORT` si la plataforma los inyecta.
+- `DATABASE_URL` apunta a la conexión DIRECTA de Supabase (puerto 5432);
+  el pool `max: 5` de `src/lib/db.ts` está dimensionado para esto.
+- Migraciones: como paso de release (job one-shot del mismo contenedor:
+  `npm run db:migrate`), nunca al arranque de cada réplica.
+
+**Alternativa serverless — Netlify o Vercel:** ambos tienen adapter oficial
+de Astro (`@astrojs/netlify` / `@astrojs/vercel`): las páginas estáticas van
+a CDN y las rutas SSR + endpoints `/api/*` se convierten en funciones. Exige:
+pooler de Supabase (puerto 6543, modo transaction) por los cold starts, y
+sacar los recordatorios (fase 2) a un scheduler externo → endpoint protegido.
+Camino viable sin tocar código de aplicación — solo cambia el adapter.
+
+**No recomendadas:** AWS Lambda directo (el standalone de `@astrojs/node` es
+un servidor HTTP de larga duración; meterlo en Lambda requiere wrappers
+frágiles — si se quiere funciones, usar Vercel/Netlify que ya resolvieron
+eso) y Cloudflare Workers (no es un runtime Node completo: postgres.js
+necesita sockets TCP nativos y el ecosistema del adapter asume APIs que
+Workers no tiene). Si algún día cambian estas condiciones, la decisión queda
+documentada aquí para no re-debatirla desde cero.

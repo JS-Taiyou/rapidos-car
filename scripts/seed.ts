@@ -11,11 +11,13 @@
 // DECISIONES
 // ----------------------------------------------------------------------------
 // * Mismo bootstrap de cliente que scripts/migrate.ts (ver sus pasos 1-3):
-//   import postgres from 'npm:postgres', DATABASE_URL de Deno.env con el
+//   import postgres from 'postgres', DATABASE_URL de process.env con el
 //   mismo mensaje de error, { max: 1 } y sql.end() al final (§2.4/§2.5).
 // * hashPassword se DUPLICA de src/lib/auth.ts en vez de importarse: auth.ts
-//   arrastraría tipos/imports de Astro al mundo Deno y rompería el script;
-//   son ~15 líneas. La copia lleva el aviso "MANTENER EN SYNC CON src/lib/auth.ts".
+//   vive en el mundo Astro/Vite (import.meta.env) y este script corre como
+//   proceso Node independiente (process.env vía --env-file); importar auth.ts
+//   arrastraría ese acoplamiento al script. Son ~15 líneas. La copia lleva el
+//   aviso "MANTENER EN SYNC CON src/lib/auth.ts".
 // * Flota típica de renta económica en Mérida (compactos Nissan + una van
 //   familiar) y slugs cortos: son las URLs públicas (/flota/march).
 // * Toda la corrida en UNA transacción: un seed a medias deja settings sin
@@ -27,7 +29,7 @@
 // 1. Bootstrap del cliente: copia los pasos 1-3 de scripts/migrate.ts
 //    (import, DATABASE_URL con "copia .env.example a .env", { max: 1 }).
 //    Envuelve todo en try/catch: error code '42P01' (undefined_table) →
-//    aborta con "falta el esquema: corre primero `deno task db:migrate`".
+//    aborta con "falta el esquema: corre primero `npm run db:migrate`".
 //
 // 2. Declara async function hashPassword(password: string): Promise<string>,
 //    DUPLICADA de src/lib/auth.ts (PBKDF2 con Web Crypto, ARCHITECTURE §2.11):
@@ -79,7 +81,7 @@
 //      'whatsapp_staff_number'      "5219990000000"   (placeholder; cámbialo)
 //
 // 8. admin_users — un renglón: email 'admin@rapidoz.local', password de
-//    Deno.env.get('ADMIN_PASSWORD') ?? 'cambia-esto-ahora', hasheada con la
+//    process.env.ADMIN_PASSWORD ?? 'cambia-esto-ahora', hasheada con la
 //    función del paso 2. ON CONFLICT (email) DO NOTHING.
 //    // CAMBIA ESTA PASSWORD EN EL PRIMER LOGIN Y NUNCA COMMITEES LA REAL:
 //    // ni en .env (está en .gitignore por algo) ni escrita en este archivo.
@@ -93,7 +95,7 @@
 // ----------------------------------------------------------------------------
 // CONTRATO
 // ----------------------------------------------------------------------------
-// Ejecuta: `deno task db:seed` DESPUÉS de `deno task db:migrate`. Deja en la
+// Ejecuta: `npm run db:seed` DESPUÉS de `npm run db:migrate`. Deja en la
 // BD: catálogo cotizable vía /api/quote, los settings que leen
 // availability.ts y pricing.ts, y un admin para /admin/login. Re-ejecutable.
 //
@@ -106,5 +108,5 @@
 //    sube archivos a /public/images/fleet/ (march-1.jpg…) y actualiza:
 //    UPDATE vehicle_models SET photos = '{/images/fleet/march-1.jpg}' WHERE slug='march';
 // 3. Correr el seed sin haber migrado → Postgres lanza 42P01; detecta ese
-//    code y sugiere `deno task db:migrate` en vez de soltar el stacktrace.
+//    code y sugiere `npm run db:migrate` en vez de soltar el stacktrace.
 // ============================================================================

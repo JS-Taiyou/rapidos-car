@@ -1,3 +1,13 @@
+## Stack
+
+- **Astro + React (islas)**, TypeScript estricto. Sin SPA.
+- **Runtime: Node 22** — NO hay Deno en el proyecto (runtime ni Deno Deploy).
+- **SSR/API:** adapter `@astrojs/node` (modo `standalone`); endpoints en `src/pages/api/`. Sin framework HTTP extra (Express/Fastify/Nest descartados, ver docs/ARCHITECTURE.md §2.14).
+- **Datos:** PostgreSQL en **Supabase** via `postgres` (postgres.js), sin ORM; migraciones en `db/migrations/` con `npm run db:migrate` / `npm run db:seed` (Node + tsx).
+- **Despliegue:** contenedor Docker (Fargate/Railway/Render/Fly.io) o adapters serverless de Netlify/Vercel — ver docs/ARCHITECTURE.md §8.
+
+La fuente de verdad de la arquitectura es `docs/ARCHITECTURE.md`; si una guía y ese documento difieren, el documento manda.
+
 ## Development
 
 When starting the dev server, use background mode:

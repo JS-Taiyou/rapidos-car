@@ -31,7 +31,8 @@
 //   solo admin y la sesión vive en BD con expiración (ARCHITECTURE §2.11).
 //   Reset manual de password (documentado aquí a propósito):
 //     1. Genera el hash con la util hashPassword de src/lib/auth.ts desde un
-//        script Deno suelto (deno eval o un console.log temporal en seed).
+//        script Node suelto (npx tsx -e "..." o un console.log temporal en
+//        scripts/seed.ts).
 //     2. UPDATE admin_users SET password_hash = 'pbkdf2:<iter>:<sal>:<hash>'
 //        WHERE email = '<admin>';
 //     3. DELETE FROM sessions;  (opcional: tumba sesiones vivas)

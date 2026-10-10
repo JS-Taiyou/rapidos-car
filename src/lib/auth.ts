@@ -10,7 +10,7 @@
 // DECISIONES
 // ----------------------------------------------------------------------------
 // * Web Crypto (crypto.subtle) y NO bcrypt/argon2: cero dependencias cripto,
-//   API idéntica en Node 22 (globalThis.crypto) y en Deno (ARCHITECTURE
+//   disponible nativo en Node 22 como globalThis.crypto (ARCHITECTURE
 //   §2.11). PBKDF2 con 210_000 iteraciones SHA-256 es suficiente para un solo
 //   admin sin meter toolchains nativos (bcrypt compila, argon2 es wasm).
 // * Sesiones EN BD y no JWT: revocables (logout real = DELETE de la fila;
@@ -24,10 +24,11 @@
 //   verifyPassword, y los helpers hex) NO importan nada de Astro ni de db —
 //   son portables. requireAdmin/requireAdminApi son la ÚNICA sección que
 //   conoce Astro (cookies/redirect). Por qué importa: scripts/seed.ts DUPLICA
-//   hashPassword deliberadamente (corre en Deno, no puede importar código que
-//   asuma import.meta.env de Astro). Si cambias iteraciones, formato o
-//   algoritmo aquí, ACTUALIZA la copia de scripts/seed.ts en el mismo commit
-//   — pon un comentario espejo en ambos archivos.
+//   hashPassword deliberadamente (corre como proceso Node independiente, con
+//   process.env vía --env-file, no con el import.meta.env de Astro/Vite que
+//   este archivo asume). Si cambias iteraciones, formato o algoritmo aquí,
+//   ACTUALIZA la copia de scripts/seed.ts en el mismo commit — pon un
+//   comentario espejo en ambos archivos.
 //
 // ----------------------------------------------------------------------------
 // PASOS

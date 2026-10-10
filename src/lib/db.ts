@@ -9,20 +9,20 @@
 // DECISIONES
 // ----------------------------------------------------------------------------
 // * Singleton a nivel de MÓDULO (se crea al importar el archivo, una vez por
-//   proceso): en serverless el runtime reutiliza procesos "calientes" entre
-//   requests; si crearas el cliente dentro de cada handler, cada request
-//   abriría conexiones nuevas y agotaría el pool de Prisma Postgres. Un
+//   proceso): el servidor Node reutiliza el proceso entre requests; si
+//   crearas el cliente dentro de cada handler, cada request abriría
+//   conexiones nuevas y agotaría el límite de conexiones de Supabase. Un
 //   cliente por proceso = conexiones cálidas reutilizadas.
-// * Pool chico: `max: 5`. El free tier de Prisma Postgres cuenta operaciones
-//   y limita conexiones (spec §2: "cada query cuenta"). 5 conexiones por
-//   proceso sobran para el tráfico del MVP; más pool = más riesgo de
-//   "too many connections" cuando hay varios procesos calientes a la vez.
-// * Diferencia con los scripts Deno (scripts/migrate.ts, scripts/seed.ts):
-//   esos leen `Deno.env.get('DATABASE_URL')` y crean SU PROPIO cliente
-//   postgres.js dentro del script (viven segundos y mueren). Este archivo,
-//   en cambio, lee `import.meta.env.DATABASE_URL` porque corre dentro de
-//   Astro/Vite, que inyecta el .env. No compartas el singleton con los
-//   scripts: runtimes distintos, ciclos de vida distintos.
+// * Pool chico: `max: 5`. El free tier de Supabase limita conexiones
+//   directas (spec §2: "cada query cuenta"). 5 conexiones por proceso sobran
+//   para el tráfico del MVP; más pool = más riesgo de "too many connections"
+//   cuando hay varios procesos (réplicas + scripts) a la vez.
+// * Diferencia con los scripts de BD (scripts/migrate.ts, scripts/seed.ts):
+//   esos leen `process.env.DATABASE_URL` (vía --env-file de Node) y crean SU
+//   PROPIO cliente postgres.js dentro del script (viven segundos y mueren).
+//   Este archivo, en cambio, lee `import.meta.env.DATABASE_URL` porque corre
+//   dentro de Astro/Vite, que inyecta el .env. No compartas el singleton con
+//   los scripts: ciclos de vida distintos, forma distinta de leer el env.
 // * REGLA DE ORO: este archivo SOLO se importa en código servidor —
 //   frontmatter de .astro (entre los `---`) y endpoints .ts. NUNCA en una
 //   isla React (.tsx): si una isla lo importa, (a) el bundle del cliente
@@ -69,9 +69,9 @@
 // ----------------------------------------------------------------------------
 // - Importar `sql` en un .tsx → bundle roto + credenciales filtradas. Si TS
 //   no lo impide, la disciplina es: imports de './db' solo en .astro/.ts.
-// - Crear `postgres(DATABASE_URL)` dentro de cada endpoint → agota el pool
-//   del free tier; el singleton existe exactamente para evitar eso.
-// - `max` alto "por si acaso" → en serverless hay N procesos × max
+// - Crear `postgres(DATABASE_URL)` dentro de cada endpoint → agota el límite
+//   de conexiones de Supabase; el singleton existe exactamente para evitar eso.
+// - `max` alto "por si acaso" → en producción hay N procesos × max
 //   conexiones; 5 es deliberado.
 // - Leer process.env en vez de import.meta.env → funciona en dev Node pero
 //   rompe la convención de Astro y el despliegue; usa import.meta.env.

@@ -5,7 +5,7 @@
 -- del diseño está en docs/ARCHITECTURE.md §3; esta guía traduce ese diseño a
 -- instrucciones SQL concretas.
 --
--- Cómo se aplica: `deno task db:migrate` (scripts/migrate.ts lee este archivo
+-- Cómo se aplica: `npm run db:migrate` (scripts/migrate.ts lee este archivo
 -- y lo ejecuta dentro de una transacción). Cada migración es idempotente en
 -- intención pero se registra en `_migrations` para no reaplicarse.
 --

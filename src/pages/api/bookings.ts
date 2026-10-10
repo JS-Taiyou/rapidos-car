@@ -60,7 +60,7 @@
 //          la BD ni alarga la transacción con roundtrips.
 //       3. code = generateBookingCode(): 'RPZ-' + 6 chars del alfabeto
 //          'ABCDEFGHJKMNPQRSTUVWXYZ23456789' con crypto.getRandomValues
-//          (Web Crypto: corre igual en Node 22 y Deno, §2.11 mismo criterio).
+//          (Web Crypto de Node 22, §2.11 mismo criterio).
 //       4. INSERT INTO bookings (code, kind, vehicle_id, customer_name,
 //          customer_email, customer_phone, flight_number, period, pickup_zone,
 //          extras, total_cents, deposit_type, status) VALUES (${code},

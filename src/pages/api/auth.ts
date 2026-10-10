@@ -11,15 +11,16 @@
 // ----------------------------------------------------------------------------
 // * Rate limit en memoria: Map<ip, { count, resetAt }>, máx 5 intentos por 10
 //   min por IP. Suficiente para UN admin que escribe bien su password.
-//   LIMITACIÓN HONESTA: en Deno Deploy hay múltiples instancias serverless y la
-//   memoria NO se comparte entre ellas — el límite real es ~5 × instancias
-//   activas y se reinicia con cada cold start. La defensa real es password
-//   fuerte + PBKDF2 con suficientes iteraciones + sesiones cortas (7 días);
-//   este Map es ralentización, no muralla. Si escala, tabla login_attempts.
+//   NOTA DE ALCANCE: con el servidor Node de un solo proceso (ARCHITECTURE
+//   §2.14) el Map SÍ es compartido entre todos los requests; la limitación
+//   aparece solo si escala a N réplicas (cada una tendría su Map → límite
+//   real ~5 × réplicas). La defensa real es password fuerte + PBKDF2 con
+//   suficientes iteraciones + sesiones cortas (7 días); este Map es
+//   ralentización, no muralla. Si escala, tabla login_attempts.
 // * 401 con el MISMO mensaje exista o no el email: respuestas (o tiempos)
 //   distintos permitirían enumerar usuarios válidos por fuerza bruta.
 // * Cookie vía context.cookies.set de Astro (no Set-Cookie a mano): serializa
-//   bien los flags y funciona igual en dev (Node) y en el adapter Deno.
+//   bien los flags y funciona igual en dev y en el adapter Node.
 //
 // ----------------------------------------------------------------------------
 // PASOS
@@ -79,8 +80,8 @@
 // ----------------------------------------------------------------------------
 // ERRORES COMUNES
 // ----------------------------------------------------------------------------
-// - Olvidar que el rate limit es POR INSTANCIA en serverless (Deno Deploy tiene
-//   varias): ya documentado en DECISIONES — no lo vendas como defensa fuerte.
+// - Olvidar que el rate limit es POR PROCESO (con N réplicas hay N Maps): ya
+//   documentado en DECISIONES — no lo vendas como defensa fuerte.
 // - secure: true en dev → la cookie no se guarda en http://localhost.
 // - Comparar passwords con === : siempre verifyPassword (comparación
 //   timing-safe sobre el PBKDF2).
