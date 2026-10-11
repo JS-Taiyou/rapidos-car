@@ -1,0 +1,11 @@
+# Nunca entran al contexto de build (imagen más chica, cache más estable)
+node_modules
+dist
+.astro
+.git
+.env
+.env.*
+!.env.example
+uploads
+*.md
+.vscode
