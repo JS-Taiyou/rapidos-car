@@ -12,7 +12,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "db:migrate": "node --env-file=.env --import tsx scripts/migrate.ts",
-    "db:seed": "node --env-file=.env --import tsx scripts/seed.ts"
+    "db:seed": "node --env-file=.env --import tsx scripts/seed.ts",
+    "db:seed:demo": "node --env-file=.env --import tsx scripts/seed-demo.ts"
   },
   "dependencies": {
     "@astrojs/node": "^11.1.7",
