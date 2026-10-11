@@ -4,6 +4,7 @@ import type { APIContext } from 'astro';
 import { sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
 import { vehicleUpsertSchema } from '../../../lib/validation';
+import { invalidateFleetCache } from '../../../lib/fleet-cache';
 
 export const prerender = false;
 
@@ -101,6 +102,8 @@ export async function POST(context: APIContext): Promise<Response> {
       }
     }
 
+    // Flota cambiada: tumba el snapshot del catálogo público.
+    invalidateFleetCache();
     return json({ model: toModel(created[0], insertedUnits) }, 201);
   } catch (err) {
     if ((err as { code?: string; constraint?: string }).code === '23505') {

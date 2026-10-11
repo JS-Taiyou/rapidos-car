@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from '../../ui/dialog';
 import { Toaster, toast } from '../../ui/sonner';
+import PhotoDropzone from './PhotoDropzone';
 import { vehicleUpsertSchema } from '../../../lib/validation';
 
 interface UnitRow {
@@ -83,13 +84,42 @@ export default function FleetManager() {
   const [models, setModels] = useState<ModelRow[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<ModelRow | null>(null);
   const [form, setForm] = useState(emptyModel);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ModelRow | null>(null);
   const [retireUnits, setRetireUnits] = useState(true);
   const [newPlates, setNewPlates] = useState<Record<number, string>>({});
+  // Fotos recién seleccionadas: preview con blob: URLs (locales al navegador,
+  // desechables — NADA viaja aún). Al confirmar, los archivos originales se
+  // suben y el servidor los procesa con sharp.
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
+
+  function clearPending() {
+    for (const url of pendingPreviews) URL.revokeObjectURL(url);
+    setPendingFiles([]);
+    setPendingPreviews([]);
+  }
+
+  function addFiles(list: File[]) {
+    const accepted: File[] = [];
+    const urls: string[] = [];
+    for (const file of list) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > 10 * 1024 * 1024) continue;
+      accepted.push(file);
+      urls.push(URL.createObjectURL(file));
+    }
+    setPendingFiles((prev) => [...prev, ...accepted].slice(0, 6));
+    setPendingPreviews((prev) => [...prev, ...urls].slice(0, 6));
+  }
+
+  function removePending(index: number) {
+    URL.revokeObjectURL(pendingPreviews[index]);
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+    setPendingPreviews((prev) => prev.filter((_, i) => i !== index));
+  }
 
   const loadFleet = useCallback(async () => {
     const res = await fetch('/api/admin/vehicles');
@@ -106,30 +136,14 @@ export default function FleetManager() {
   }, [loadFleet]);
 
   function openCreate() {
-    setEditing(null);
     setForm(emptyModel);
     setFormErrors({});
+    clearPending();
     setDialogOpen(true);
   }
 
-  function openEdit(model: ModelRow) {
-    setEditing(model);
-    // Al editar, divide /100 al poblar (el input trabaja en pesos): si no,
-    // cada edición infla o desinfla el precio 100×.
-    setForm({
-      name: model.name,
-      slug: model.slug,
-      category: model.category,
-      transmission: model.transmission,
-      seats: model.seats,
-      luggage: model.luggage,
-      dailyRate: model.dailyRateCents / 100,
-      photos: model.photos.join('\n'),
-      plates: '',
-    });
-    setFormErrors({});
-    setDialogOpen(true);
-  }
+  // La edición de modelos es pantalla propia (/admin/flota/[id]) con
+  // galería; desde aquí sólo se navega.
 
   async function submitModel(e: React.FormEvent) {
     e.preventDefault();
@@ -149,14 +163,13 @@ export default function FleetManager() {
           .split('\n')
           .map((s) => s.trim())
           .filter(Boolean),
-        units:
-          !editing && form.plates.trim()
-            ? form.plates
-                .split('\n')
-                .map((s) => s.trim())
-                .filter(Boolean)
-                .map((plate) => ({ plate }))
-            : undefined,
+        units: form.plates.trim()
+          ? form.plates
+              .split('\n')
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .map((plate) => ({ plate }))
+          : undefined,
       };
       const parsed = vehicleUpsertSchema.safeParse(candidate);
       if (!parsed.success) {
@@ -167,17 +180,34 @@ export default function FleetManager() {
         setFormErrors(errors);
         return;
       }
-      const res = await fetch(
-        editing ? `/api/admin/vehicles/${editing.id}` : '/api/admin/vehicles',
-        {
-          method: editing ? 'PATCH' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(parsed.data),
-        },
-      );
+
+      // Si hay archivos pendientes, AHORA sí viajan los originales: suben
+      // por multipart, el servidor los optimiza (WebP) y devuelve las rutas.
+      let uploadedPaths: string[] = [];
+      if (pendingFiles.length > 0) {
+        const fd = new FormData();
+        for (const file of pendingFiles) fd.append('photos', file);
+        const upload = await fetch('/api/admin/vehicles/photos', { method: 'POST', body: fd });
+        if (upload.status === 401) {
+          window.location.href = '/admin/login';
+          return;
+        }
+        if (!upload.ok) {
+          toast.error('No se pudieron subir las fotos');
+          return;
+        }
+        uploadedPaths = ((await upload.json()) as { paths: string[] }).paths;
+      }
+
+      const res = await fetch('/api/admin/vehicles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...parsed.data, photos: [...parsed.data.photos, ...uploadedPaths] }),
+      });
       if (res.ok) {
-        toast.success(editing ? 'Modelo actualizado' : 'Modelo creado');
+        toast.success('Modelo creado');
         setDialogOpen(false);
+        clearPending();
         await loadFleet();
         return;
       }
@@ -324,7 +354,7 @@ export default function FleetManager() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="outline" onClick={() => openEdit(model)}>
+                      <Button size="sm" variant="outline" onClick={() => (window.location.href = `/admin/flota/${model.id}`)}>
                         Editar
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(model)}>
@@ -379,11 +409,18 @@ export default function FleetManager() {
         </Table>
       </div>
 
-      {/* Alta / edición de modelo (mismo dialog; editing distingue) */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {/* Alta de modelo (la edición es pantalla propia en /admin/flota/[id]) */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          // Al cerrar (X, overlay, submit) se liberan los blob: URLs.
+          if (!open) clearPending();
+        }}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editing ? `Editar ${editing.name}` : 'Nuevo modelo'}</DialogTitle>
+            <DialogTitle>Nuevo modelo</DialogTitle>
             <DialogDescription>
               La tarifa se captura en pesos; el sistema la guarda en centavos.
             </DialogDescription>
@@ -475,7 +512,7 @@ export default function FleetManager() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="fm-photos">Fotos (una URL por línea)</Label>
+              <Label htmlFor="fm-photos">Fotos existentes (una URL por línea)</Label>
               <Textarea
                 id="fm-photos"
                 rows={3}
@@ -484,19 +521,41 @@ export default function FleetManager() {
                 onChange={(e) => setForm({ ...form, photos: e.target.value })}
               />
             </div>
-            {!editing && (
-              <div className="space-y-1.5">
-                <Label htmlFor="fm-plates">Placas iniciales (una por línea)</Label>
-                <Textarea
-                  id="fm-plates"
-                  rows={2}
-                  placeholder={'YXB-1234\nYXB-1235'}
-                  value={form.plates}
-                  onChange={(e) => setForm({ ...form, plates: e.target.value })}
-                />
-                {formErrors.plates && <p className="text-xs text-destructive">{formErrors.plates}</p>}
+            <PhotoDropzone onFiles={addFiles} />
+            {/* Preview con blob: URLs — mismas proporciones (16:10) que la
+                tarjeta del catálogo; nada viaja hasta confirmar. */}
+            {pendingPreviews.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {pendingPreviews.map((url, i) => (
+                  <div key={url} className="group relative overflow-hidden rounded-md border">
+                    <img
+                      src={url}
+                      alt={`Nueva foto ${i + 1}`}
+                      className="aspect-[16/10] w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removePending(i)}
+                      className="absolute right-1 top-1 rounded bg-black/60 px-1.5 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-label={`Quitar foto ${i + 1}`}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
+            <div className="space-y-1.5">
+              <Label htmlFor="fm-plates">Placas iniciales (una por línea)</Label>
+              <Textarea
+                id="fm-plates"
+                rows={2}
+                placeholder={'YXB-1234\nYXB-1235'}
+                value={form.plates}
+                onChange={(e) => setForm({ ...form, plates: e.target.value })}
+              />
+              {formErrors.plates && <p className="text-xs text-destructive">{formErrors.plates}</p>}
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancelar

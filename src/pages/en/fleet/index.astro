@@ -4,7 +4,7 @@
 // catálogo NO se traducen; solo cambian los textos de UI.
 import BaseLayout from '../../../layouts/BaseLayout.astro';
 import CarCard from '../../../components/CarCard.astro';
-import { sql } from '../../../lib/db';
+import { getFleetCatalog } from '../../../lib/fleet-cache';
 import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
 import { buildWhatsAppUrl } from '../../../lib/whatsapp';
 
@@ -16,28 +16,11 @@ const cat = Astro.url.searchParams.get('cat');
 const validCats = ['small', 'compact', 'medium', 'large', 'van', 'cargo'];
 const activeCat = cat && validCats.includes(cat) ? cat : null;
 
-const rows = await sql`
-  SELECT m.slug, m.name, m.category, m.transmission, m.seats,
-         m.luggage, m.daily_rate_cents, m.photos,
-         COUNT(v.id)::int AS active_units
-  FROM vehicle_models m
-  LEFT JOIN vehicles v ON v.model_id = m.id AND v.status = 'active'
-  WHERE m.active = true
-    AND (${activeCat}::text IS NULL OR m.category = ${activeCat})
-  GROUP BY m.id
-  ORDER BY m.daily_rate_cents ASC
-`;
-
-const models = rows.map((r) => ({
-  slug: r.slug as string,
-  name: r.name as string,
-  category: r.category as string,
-  transmission: r.transmission as string,
-  seats: Number(r.seats),
-  luggage: Number(r.luggage),
-  dailyRateCents: Number(r.daily_rate_cents),
-  photos: (r.photos as string[]) ?? [],
-}));
+// Snapshot en memoria (src/lib/fleet-cache.ts): la primera visita paga la
+// query; el resto lee memoria. El filtro ?cat= se aplica en JS sobre el
+// catálogo completo (28 renglones).
+const allModels = await getFleetCatalog();
+const models = activeCat ? allModels.filter((m) => m.category === activeCat) : allModels;
 
 const emptyWhatsapp = buildWhatsAppUrl(t('fleet.emptyCta'));
 const basePath = getLocalizedPath('/flota', 'en');

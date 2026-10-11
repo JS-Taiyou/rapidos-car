@@ -5,6 +5,7 @@ import type { APIContext } from 'astro';
 import { sql } from '../../../../lib/db';
 import { requireAdminApi } from '../../../../lib/auth';
 import { vehicleUpsertSchema } from '../../../../lib/validation';
+import { invalidateFleetCache } from '../../../../lib/fleet-cache';
 
 export const prerender = false;
 
@@ -105,6 +106,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
       if (result.count === 0) return json({ error: 'not_found' }, 404);
     }
 
+    invalidateFleetCache();
     // Re-lectura con el merge de unidades (mismo patrón que el GET).
     const units = await sql`
       SELECT id, plate, status FROM vehicles WHERE model_id = ${id} ORDER BY plate
@@ -159,6 +161,7 @@ export async function DELETE(context: APIContext): Promise<Response> {
     await sql`UPDATE vehicles SET status = 'retired' WHERE model_id = ${id} AND status = 'active'`;
   }
 
+  invalidateFleetCache();
   return json({ ok: true, model: toModel(rows[0], []) });
 }
 

@@ -23,3 +23,6 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# fotos subidas en runtime por el admin (servidas por /uploads/)
+uploads/

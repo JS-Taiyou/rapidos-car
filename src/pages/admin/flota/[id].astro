@@ -1,0 +1,99 @@
+---
+// Admin — Editar modelo (/admin/flota/[id]) — SSR: pantalla completa (ya no
+// modal) con subheader "Editar" + nombre grande + flecha atrás hacia la
+// flota. El frontmatter hace la guardia y carga el modelo para el título;
+// la edición interactiva (form + galería) vive en la isla ModelEditor.
+import { requireAdmin } from '../../../lib/auth';
+import { sql } from '../../../lib/db';
+import AdminNav from '../../../components/admin/AdminNav.astro';
+import ModelEditor from '../../../components/react/admin/ModelEditor.tsx';
+import '../../../styles/global.css';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const id = parseInt(Astro.params.id ?? '', 10);
+if (Number.isNaN(id)) Astro.response.status = 404;
+
+const rows = Number.isNaN(id)
+  ? []
+  : await sql`
+      SELECT m.id, m.slug, m.name, m.category, m.transmission, m.seats,
+             m.luggage, m.daily_rate_cents, m.photos, m.active
+      FROM vehicle_models m
+      WHERE m.id = ${id}
+      LIMIT 1
+    `;
+const row = rows[0];
+
+if (!row) Astro.response.status = 404;
+
+const model = row
+  ? {
+      id: Number(row.id),
+      slug: row.slug as string,
+      name: row.name as string,
+      category: row.category as string,
+      transmission: row.transmission as 'automatic' | 'manual',
+      seats: Number(row.seats),
+      luggage: Number(row.luggage),
+      dailyRateCents: Number(row.daily_rate_cents),
+      photos: (row.photos as string[]) ?? [],
+      active: Boolean(row.active),
+    }
+  : null;
+
+const unitRows = model
+  ? await sql`SELECT id, plate, status FROM vehicles WHERE model_id = ${model.id} ORDER BY plate`
+  : [];
+const units = unitRows.map((u) => ({
+  id: Number(u.id),
+  plate: u.plate as string,
+  status: u.status as string,
+}));
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>{model ? `Editar ${model.name} — Rapidoz Admin` : 'No encontrado — Rapidoz Admin'}</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-6xl px-4 py-8">
+      {
+        model ? (
+          <>
+            <a
+              href="/admin/flota"
+              class="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-brand"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M19 12H5m7-7-7 7 7 7" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              Volver a la flota
+            </a>
+            <header class="mt-3 mb-6">
+              <p class="text-sm text-muted-foreground">Editar</p>
+              <h1 class="text-3xl font-bold tracking-tight">{model.name}</h1>
+              <p class="mt-1 font-mono text-xs text-muted-foreground">/flota/{model.slug}</p>
+            </header>
+            <ModelEditor client:load model={{ ...model, units }} />
+          </>
+        ) : (
+          <div class="py-20 text-center">
+            <h1 class="text-2xl font-bold">Ese modelo no existe</h1>
+            <a href="/admin/flota" class="mt-4 inline-block text-brand hover:underline">
+              ← Volver a la flota
+            </a>
+          </div>
+        )
+      }
+    </main>
+  </body>
+</html>
