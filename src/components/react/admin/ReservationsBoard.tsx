@@ -1185,7 +1185,13 @@ export default function ReservationsBoard() {
 
             <div className="space-y-1.5">
               <Label htmlFor="cap-notes">Notas {form.kind === 'block' ? '(motivo del bloqueo)' : '(opcionales)'}</Label>
-              <Input id="cap-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <Textarea
+                id="cap-notes"
+                rows={2}
+                placeholder="ej. entrega acordada 7:00 am en llegadas, cliente prefiere WhatsApp…"
+                value={form.notes}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setForm({ ...form, notes: e.target.value })}
+              />
             </div>
 
             <DialogFooter>
