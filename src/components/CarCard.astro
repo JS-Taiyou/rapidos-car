@@ -1,6 +1,10 @@
 ---
-// Tarjeta de modelo para catálogos (flota y home). Componente Astro PURO:
-// cero JS, el <a> nativo navega. Precio formateado EN SERVIDOR.
+// Tarjeta de modelo para catálogos (flota y home). Componente Astro: el
+// cuerpo es HTML estático; SOLO el mini-carrusel tiene interacción (bolitas
+// clicables + carets por hover), resuelta con UN script delegado para todas
+// las cards (abajo) — sin hidratar 28 islas React por página.
+// Regla UX: los carets nunca desaparecen entre fotos (solo se deshabilitan)
+// para que un clic en "el mismo pixel" no navegue al detalle por accidente.
 import { useTranslations, getLocalizedPath, type Lang } from '../i18n/utils';
 
 interface Props {
@@ -28,53 +32,108 @@ const price = new Intl.NumberFormat('es-MX', {
 }).format(model.dailyRateCents / 100);
 
 const detailUrl = getLocalizedPath(`/flota/${model.slug}`, lang);
+const photos = model.photos;
 ---
 
-<article
-  class="group overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md"
->
+<article class="group relative overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md" data-carousel>
+  <!-- DOS enlaces al detalle (foto y cuerpo): la FRANJA de bolitas queda
+       entre ambos como hermana, fuera de cualquier <a> — HTML válido y sus
+       clics jamás navegan. Los carets van superpuestos sobre la foto. -->
+  <a href={detailUrl} class="block focus-visible:outline-none" aria-label={model.name}>
+    <!-- Marco: fotos apiladas con cross-fade; shimmer hasta la primera carga. -->
+    <div class="img-loading relative aspect-[16/10] w-full bg-gradient-to-br from-brand-soft to-muted">
+      {
+        photos.length > 0 ? (
+          photos.map((photo, i) => (
+            <img
+              src={photo}
+              alt={i === 0 ? model.name : `${model.name} — foto ${i + 1}`}
+              width="640"
+              height="400"
+              loading="lazy"
+              decoding="async"
+              data-carousel-slide={i}
+              class:list={[
+                'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
+                i === 0 ? 'opacity-100' : 'opacity-0',
+              ]}
+              onload={i === 0 ? 'this.parentElement.classList.add("is-loaded")' : undefined}
+            />
+          ))
+        ) : (
+          <div class="flex h-full w-full items-center justify-center text-5xl" aria-hidden="true">
+            🚗
+          </div>
+        )
+      }
+    </div>
+  </a>
+
+  {
+    photos.length > 0 && (
+      <div class="pointer-events-none absolute inset-x-0 top-0 z-10 aspect-[16/10]">
+        {/* Carets: visibles en hover SIEMPRE (no desaparecen al llegar a un
+            borde); deshabilitados cuando no hay más fotos en esa dirección —
+            un clic en ellos no cambia foto NI navega al detalle. */}
+        <button
+          type="button"
+          data-carousel-prev
+          disabled
+          aria-label="Foto anterior"
+          class="pointer-events-auto absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:enabled:opacity-100 group-hover:disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+        <button
+          type="button"
+          data-carousel-next
+          disabled={photos.length < 2}
+          aria-label="Foto siguiente"
+          class="pointer-events-auto absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition-opacity group-hover:enabled:opacity-100 group-hover:disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+      </div>
+    )
+  }
+
+  {
+    photos.length > 1 && (
+      /* Franja de bolitas: A LO ANCHO de la card, DEBAJO de la foto. El
+         hover lo atrapa esta franja completa (no cada bolita): al crecer
+         las bolitas el hover nunca se pierde ni hay parpadeo. Altura fija
+         (h-8): el crecimiento de las bolitas no mueve nada del layout.
+         Cada bolita vive en un botón de 28px (área táctil generosa) y la
+         pastilla visual crece ~3× (6px → 18px) al hover de la franja. */
+      <div class="group/dots relative z-10 flex h-8 items-center justify-center">
+        {photos.map((_, i) => (
+          <button
+            type="button"
+            data-carousel-dot
+            data-index={i}
+            aria-label={`Foto ${i + 1}`}
+            aria-current={i === 0 ? 'true' : 'false'}
+            class="flex h-7 w-7 cursor-pointer items-center justify-center"
+          >
+            <span
+              class:list={[
+                'block rounded-full bg-border transition-all duration-200 ease-out',
+                'h-1.5 w-1.5 group-hover/dots:h-[18px] group-hover/dots:w-[18px]',
+                i === 0 && 'bg-brand',
+                i !== 0 && 'group-hover/dots:bg-brand/50',
+              ]}
+            />
+          </button>
+        ))}
+      </div>
+    )
+  }
+
   <a href={detailUrl} class="block focus-visible:outline-none">
-    <!-- Mini carrusel cero-JS: tira con scroll-snap; en móvil se desliza con
-         el dedo y en desktop arrastrando. Cada foto tiene placeholder con
-         shimmer (img-loading) y aparece con fade-in al terminar de cargar;
-         si falla, queda el emoji sobre el placeholder (onerror). -->
-    {
-      model.photos.length > 0 ? (
-        <div class="flex snap-x snap-mandatory overflow-x-auto scrollbar-none aspect-[16/10] w-full">
-          {model.photos.map((photo, i) => (
-            <div class="img-loading relative flex h-full w-full shrink-0 snap-center items-center justify-center">
-              <span class="text-4xl opacity-50" aria-hidden="true">
-                🚗
-              </span>
-              <img
-                src={photo}
-                alt={i === 0 ? model.name : `${model.name} — foto ${i + 1}`}
-                width="640"
-                height="400"
-                loading="lazy"
-                decoding="async"
-                class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
-                onload="this.classList.add('opacity-100');this.parentElement.classList.add('is-loaded')"
-                onerror="this.parentElement.classList.add('is-loaded')"
-              />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div class="flex aspect-[16/10] w-full items-center justify-center bg-gradient-to-br from-brand-soft to-muted text-5xl" aria-hidden="true">
-          🚗
-        </div>
-      )
-    }
-    {
-      model.photos.length > 1 && (
-        <div class="flex justify-center gap-1.5 py-1.5" aria-hidden="true">
-          {model.photos.map((_, i) => (
-            <span class:list={['h-1.5 w-1.5 rounded-full', i === 0 ? 'bg-brand' : 'bg-border']} />
-          ))}
-        </div>
-      )
-    }
     <div class="space-y-3 p-4">
       <div class="flex items-center justify-between gap-2">
         <h3 class="font-semibold leading-tight">{model.name}</h3>
@@ -113,3 +172,53 @@ const detailUrl = getLocalizedPath(`/flota/${model.slug}`, lang);
     </div>
   </a>
 </article>
+
+<script>
+  // UN solo listener delegado para todas las cards del catálogo (el script
+  // de un componente Astro se incluye una vez por página aunque la card se
+  // repita 28 veces). Los controles son HERMANOS del <a>: sus clics cambian
+  // la foto y jamás navegan — no hay nada que prevenir.
+  function show(card: Element, index: number): void {
+    const slides = card.querySelectorAll<HTMLElement>('[data-carousel-slide]');
+    if (slides.length === 0) return;
+    const clamped = Math.max(0, Math.min(index, slides.length - 1));
+    slides.forEach((slide, i) => {
+      slide.classList.toggle('opacity-100', i === clamped);
+      slide.classList.toggle('opacity-0', i !== clamped);
+    });
+    card.querySelectorAll<HTMLElement>('[data-carousel-dot]').forEach((dot) => {
+      // La pastilla visual vive en el <span> interno del botón (el botón
+      // fija el área táctil; el span el tamaño/color).
+      const visual = dot.querySelector('span');
+      if (!visual) return;
+      const active = Number(dot.dataset.index) === clamped;
+      dot.setAttribute('aria-current', active ? 'true' : 'false');
+      visual.classList.toggle('bg-brand', active);
+      visual.classList.toggle('bg-border', !active);
+    });
+    // Los carets SIEMPRE presentes: sólo su disabled cambia — nunca
+    // desaparecen entre fotos (evita el clic fantasma que navegaba al
+    // detalle en el mismo pixel).
+    const prev = card.querySelector<HTMLButtonElement>('[data-carousel-prev]');
+    const next = card.querySelector<HTMLButtonElement>('[data-carousel-next]');
+    if (prev) prev.disabled = clamped === 0;
+    if (next) next.disabled = clamped === slides.length - 1;
+  }
+
+  document.addEventListener('click', (e: MouseEvent) => {
+    const card = (e.target as HTMLElement).closest<HTMLElement>('[data-carousel]');
+    if (!card) return;
+
+    const dot = (e.target as HTMLElement).closest<HTMLElement>('[data-carousel-dot]');
+    if (dot) {
+      show(card, Number(dot.dataset.index));
+      return;
+    }
+
+    const caret = (e.target as HTMLElement).closest<HTMLElement>('[data-carousel-prev], [data-carousel-next]');
+    if (caret && !caret.hasAttribute('disabled')) {
+      const current = Number(card.querySelector<HTMLElement>('[data-carousel-slide].opacity-100')?.dataset.slide ?? 0);
+      show(card, current + (caret.hasAttribute('data-carousel-next') ? 1 : -1));
+    }
+  });
+</script>

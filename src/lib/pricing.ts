@@ -2,6 +2,7 @@
 // FUNCIÓN PURA: no toca BD; recibe seasons/extrasCatalog/settings ya
 // cargados por el caller (evita N+1 en /api/quote, que cotiza todos los
 // modelos a la vez). Dinero en centavos enteros SIEMPRE (§2.13).
+import type postgres from 'postgres';
 import type { Sql } from './db';
 import type { ModelAvailability } from './availability';
 
@@ -154,6 +155,129 @@ export function snapshotExtras(
   return snapshot;
 }
 
+// ---------------------------------------------------------------------------
+// Overrides de precio (staff): la base SIEMPRE la calcula el motor; el staff
+// puede sustituir tarifa diaria, precios de extras y aplicar un descuento
+// explícito. Todo queda registrado con procedencia.
+// ---------------------------------------------------------------------------
+export interface PricingOverrides {
+  /** Tarifa diaria fija a mano (centavos) — sustituye la del catálogo. */
+  dailyRateCents?: number;
+  /** Extras con qty y precio EDITABLE por el staff. */
+  extras?: Array<{ id: number; qty: number; priceCents: number }>;
+  /** Descuento explícito (reemplaza el automático por renta larga). */
+  discount?: { kind: 'pct' | 'amount'; value: number };
+  /** Motivo del ajuste — obligatorio si hay cualquier override. */
+  reason?: string;
+}
+
+// type alias (no interface): firma de índice implícita para sql.json().
+export type PricingRecord = PriceBreakdown & {
+  extras: Array<{ id?: number; name: string; priceCents: number; per: 'day' | 'rental'; qty: number }>;
+  dailyRateCents: number;
+  discount:
+    | { kind: 'none' | 'auto' }
+    | { kind: 'pct' | 'amount'; value: number; cents: number; reason: string };
+  pickupZone: string;
+  source: 'engine' | 'manual' | 'adjust';
+  reason?: string;
+  editedBy?: string;
+  editedAt?: string;
+};
+
+export function buildPricingRecord(
+  quote: PriceBreakdown,
+  meta: {
+    dailyRateCents: number;
+    extras: PricingRecord['extras'];
+    pickupZone: string;
+    discount: PricingRecord['discount'];
+    source: PricingRecord['source'];
+    reason?: string;
+    editedBy?: string;
+  },
+): PricingRecord {
+  return {
+    ...quote,
+    dailyRateCents: meta.dailyRateCents,
+    extras: meta.extras,
+    discount: meta.discount,
+    pickupZone: meta.pickupZone,
+    source: meta.source,
+    reason: meta.reason,
+    editedBy: meta.editedBy,
+    ...(meta.editedBy ? { editedAt: new Date().toISOString() } : {}),
+  };
+}
+
+// Aplica los overrides del staff sobre un desglose calculado por el motor.
+// Recalcula TODA la cadena (días → descuento → extras → entrega → IVA) para
+// que el total siga siendo coherente: nunca se pisa el total a ciegas.
+export function applyPricingOverrides(
+  base: PriceBreakdown,
+  model: ModelAvailability,
+  start: Date,
+  end: Date,
+  overrides: PricingOverrides,
+  ctx: PricingContext,
+): PriceBreakdown {
+  const daysCount = base.daysCount;
+  const dailyRateCents = overrides.dailyRateCents ?? model.dailyRateCents;
+
+  // Días recalculados con la tarifa (posiblemente fijada a mano) y los
+  // multiplicadores de temporada originales del desglose base.
+  const days = base.days.map((d) => ({
+    ...d,
+    cents: Math.round(dailyRateCents * d.multiplier),
+  }));
+  let subtotalCents = days.reduce((sum, d) => sum + d.cents, 0);
+
+  // Descuento: el explícito del staff REEMPLAZA el automático por renta larga.
+  let discountPct = 0;
+  let discountCents = 0;
+  let discountKind: 'none' | 'auto' | 'pct' | 'amount' = 'none';
+  if (overrides.discount) {
+    discountKind = overrides.discount.kind;
+    if (overrides.discount.kind === 'pct') {
+      discountPct = overrides.discount.value;
+      discountCents = Math.round((subtotalCents * discountPct) / 100);
+    } else {
+      discountCents = Math.min(overrides.discount.value, subtotalCents);
+    }
+  } else if (base.discountPct > 0) {
+    discountKind = 'auto';
+    discountPct = base.discountPct;
+    discountCents = subtotalCents - Math.round(subtotalCents * (1 - discountPct / 100));
+  }
+  subtotalCents -= discountCents;
+
+  // Extras con precio editable por el staff (fallback al catálogo).
+  let extrasCents = 0;
+  const selected = overrides.extras ?? [];
+  for (const sel of selected) {
+    const catalog = ctx.extrasCatalog.find((e) => e.id === sel.id);
+    const priceCents = sel.priceCents ?? catalog?.priceCents ?? 0;
+    const per = catalog?.per ?? 'rental';
+    extrasCents += per === 'day' ? priceCents * sel.qty * daysCount : priceCents * sel.qty;
+  }
+
+  const deliveryFeeCents = base.deliveryFeeCents;
+  const taxCents = Math.round((subtotalCents + extrasCents + deliveryFeeCents) * ctx.settings.ivaRate);
+  const totalCents = subtotalCents + extrasCents + deliveryFeeCents + taxCents;
+
+  return {
+    ...base,
+    days,
+    subtotalCents,
+    discountPct,
+    extrasCents,
+    deliveryFeeCents,
+    taxCents,
+    totalCents,
+    depositCents: Math.round(totalCents * 0.2),
+  };
+}
+
 // daterange de Postgres llega como texto '[2025-12-15,2026-01-06)'.
 function parseDaterange(raw: string): [string, string] {
   const body = raw.slice(1, -1);
@@ -220,4 +344,11 @@ export async function loadPricingContext(sql: Sql): Promise<PricingContext> {
       whatsappStaffNumber: String(settingsMap.whatsapp_staff_number ?? ''),
     },
   };
+}
+
+// Parámetro jsonb listo para sql.json(): PricingRecord es JSON por
+// construcción; el cast existe porque las intersecciones de tipos no
+// obtienen firma de índice implícita en TS (postgres.js la exige).
+export function pricingJson(record: object): postgres.JSONValue {
+  return record as unknown as postgres.JSONValue;
 }

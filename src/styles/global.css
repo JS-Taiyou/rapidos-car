@@ -103,6 +103,17 @@
     transform: translateX(100%);
   }
 }
+
+/* Carrusel de detalle: la franja de progreso se llena horizontal a lo largo
+   del intervalo del slide ( GalleryCarousel controla play/pausa). */
+@keyframes carousel-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
 @layer base {
   * {
     border-color: var(--border);

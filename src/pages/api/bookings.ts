@@ -10,6 +10,8 @@ import {
   computeQuote,
   loadPricingContext,
   snapshotExtras,
+  buildPricingRecord,
+  pricingJson,
   type PricingContext,
   type PriceBreakdown,
 } from '../../lib/pricing';
@@ -91,6 +93,36 @@ export async function POST(context: APIContext): Promise<Response> {
       // Recalculado en servidor: puro, no alarga la transacción.
       const quote: PriceBreakdown = computeQuote(model, start, end, pickupZone, extras, ctx);
 
+      // Desglose completo con procedencia: qué se cotizó, con qué reglas y
+      // quién lo calculó (engine = el motor, sin intervención humana).
+      const pricing = buildPricingRecord(quote, {
+        dailyRateCents: model.dailyRateCents,
+        extras: snapshot.map((e) => ({ name: e.name, priceCents: e.price_cents, per: e.per, qty: e.qty })),
+        pickupZone,
+        discount: quote.discountPct > 0 ? { kind: 'auto' } : { kind: 'none' },
+        source: 'engine',
+      });
+
+      // El pedido del cliente, congelado: aunque el staff mueva fechas,
+      // modelo o extras después, aquí queda el original para el diff del
+      // panel ("Reservación original") y el follow-up.
+      const requested = {
+        channel: 'web' as const,
+        model: { slug: model.slug, name: model.name },
+        start: start.toISOString(),
+        end: end.toISOString(),
+        pickupZone,
+        extras: snapshot.map((e) => ({ name: e.name, price_cents: e.price_cents, per: e.per, qty: e.qty })),
+        customer: {
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          flightNumber: customer.flightNumber ?? null,
+        },
+        totalCents: quote.totalCents,
+        createdAt: new Date().toISOString(),
+      };
+
       // Retry por 23505 de code duplicado (probabilidad ~0; importa el
       // patrón generar → insertar → reintentar).
       let inserted: { id: number; code: string } | undefined;
@@ -101,13 +133,14 @@ export async function POST(context: APIContext): Promise<Response> {
             INSERT INTO bookings
               (code, kind, vehicle_id, customer_name, customer_email,
                customer_phone, flight_number, period, pickup_zone, extras,
-               total_cents, deposit_type, status)
+               total_cents, deposit_type, status, pricing, requested)
             VALUES
               (${code}, 'rental', ${unitId}, ${customer.name}, ${customer.email},
                ${customer.phone}, ${customer.flightNumber ?? null},
                tstzrange(${start}::timestamptz, ${end}::timestamptz, '[)'),
-               ${pickupZone}, ${sql.json(snapshot)}::jsonb, ${quote.totalCents},
-               ${depositType}, 'confirmed')
+               ${pickupZone}, ${sql.json(snapshot)}::jsonb, ${pricing.totalCents},
+               ${depositType}, 'confirmed', ${sql.json(pricingJson(pricing))}::jsonb,
+               ${sql.json(requested)}::jsonb)
             RETURNING id, code
           `;
           inserted = { id: Number(rows[0].id), code: rows[0].code as string };
@@ -123,7 +156,62 @@ export async function POST(context: APIContext): Promise<Response> {
     });
 
     if ('unavailable' in result) {
-      // El wizard recarga el paso de autos (ARCHITECTURE §4).
+      // El wizard recarga el paso de autos (ARCHITECTURE §4)… pero el
+      // cliente YA decidió reservar: es un lead que merece follow-up. Se
+      // captura como booking status='quoted' — la constraint de exclusión
+      // ignora los quoted, así que NO aparta inventario; el staff la ve en
+      // el tablero, ajusta fechas/modelo/extras y confirma. Best-effort:
+      // si el insert falla, el 409 no se enmascara.
+      try {
+        const model = await fetchModel(sql, modelSlug);
+        const refUnit = model
+          ? await sql`SELECT v.id FROM vehicles v JOIN vehicle_models m ON m.id = v.model_id
+                      WHERE m.slug = ${modelSlug} ORDER BY v.id LIMIT 1`
+          : [];
+        if (model && refUnit.length > 0) {
+          const quote = computeQuote(model, start, end, pickupZone, extras, ctx);
+          const lead = {
+            channel: 'web' as const,
+            model: { slug: model.slug, name: model.name },
+            start: start.toISOString(),
+            end: end.toISOString(),
+            pickupZone,
+            extras: snapshot.map((e) => ({ name: e.name, price_cents: e.price_cents, per: e.per, qty: e.qty })),
+            customer: {
+              name: customer.name,
+              email: customer.email,
+              phone: customer.phone,
+              flightNumber: customer.flightNumber ?? null,
+            },
+            totalCents: quote.totalCents,
+            createdAt: new Date().toISOString(),
+            reason: 'sin_disponibilidad',
+          };
+          const pricing = buildPricingRecord(quote, {
+            dailyRateCents: model.dailyRateCents,
+            extras: snapshot.map((e) => ({ name: e.name, priceCents: e.price_cents, per: e.per, qty: e.qty })),
+            pickupZone,
+            discount: { kind: 'none' },
+            source: 'engine',
+          });
+          await sql`
+            INSERT INTO bookings
+              (code, kind, vehicle_id, customer_name, customer_email,
+               customer_phone, flight_number, period, pickup_zone, extras,
+               total_cents, deposit_type, status, pricing, requested, notes)
+            VALUES
+              (${generateBookingCode()}, 'rental', ${Number(refUnit[0].id)},
+               ${customer.name}, ${customer.email}, ${customer.phone},
+               ${customer.flightNumber ?? null},
+               tstzrange(${start}::timestamptz, ${end}::timestamptz, '[)'),
+               ${pickupZone}, ${sql.json(snapshot)}::jsonb, ${quote.totalCents},
+               ${depositType}, 'quoted', ${sql.json(pricingJson(pricing))}::jsonb,
+               ${sql.json(lead)}::jsonb, 'Lead web: sin disponibilidad al intentar reservar')
+          `;
+        }
+      } catch (leadErr) {
+        console.error('No se pudo capturar el lead del 409:', leadErr);
+      }
       return json({ error: 'unavailable' }, 409);
     }
 

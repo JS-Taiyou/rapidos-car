@@ -65,10 +65,55 @@ export const loginSchema = z.object({
   password: z.string().min(8, 'Mínimo 8 caracteres'),
 });
 
+// Overrides de precio del staff: la base la calcula el motor; el staff
+// sustituye tarifa/extras/descuento y DEJA MOTIVO. Compartido entre captura
+// manual (POST /api/admin/bookings) y ajuste de una reserva existente
+// (PATCH /api/admin/bookings/[id] con { reprice }).
+export const pricingOverridesSchema = z.object({
+  dailyRateCents: z.number().int().min(0).optional(),
+  extras: z
+    .array(
+      z.object({
+        id: z.number().int(),
+        qty: z.number().int().min(1),
+        priceCents: z.number().int().min(0),
+      }),
+    )
+    .optional(),
+  discount: z
+    .object({
+      kind: z.enum(['pct', 'amount']),
+      value: z.number().min(0),
+    })
+    .optional(),
+  reason: z.string().min(3, 'Escribe el motivo del ajuste').optional(),
+}).refine((d) => d.reason !== undefined || (d.dailyRateCents === undefined && d.extras === undefined && d.discount === undefined), {
+  message: 'Cualquier ajuste de precio requiere motivo',
+});
+
+// Edición de una reserva por staff (PATCH /api/admin/bookings/[id] con
+// { edit }): modelo, fechas, zona y extras. SIN lead time de 3 h: el staff
+// puede capturar retroactivos o ajustar lo que el cliente pidió.
+export const bookingEditSchema = z
+  .object({
+    modelSlug: z.string().min(1).optional(),
+    start: z.coerce.date().optional(),
+    end: z.coerce.date().optional(),
+    pickupZone: z.string().min(1).optional(),
+    extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).optional(),
+  })
+  .refine((d) => Object.keys(d).length > 0, { message: 'Nada que editar' });
+
 export const bookingPatchSchema = z.object({
   // 'quoted' NO se acepta: estado efímero interno, no transición de admin.
-  status: z.enum(['confirmed', 'active', 'completed', 'cancelled']),
+  status: z.enum(['confirmed', 'active', 'completed', 'cancelled']).optional(),
   notes: z.string().optional(),
+  // Ajuste de precio de una reserva EXISTENTE (independiente del estado).
+  reprice: pricingOverridesSchema.optional(),
+  // Cambio de modelo/fechas/zona/extras (re-asigna unidad y recalcula).
+  edit: bookingEditSchema.optional(),
+}).refine((d) => d.status !== undefined || d.notes !== undefined || d.reprice !== undefined || d.edit !== undefined, {
+  message: 'Nada que actualizar',
 });
 
 export const vehicleUpsertSchema = z.object({
@@ -97,6 +142,8 @@ export const vehicleUpsertSchema = z.object({
 
 // Captura manual y bloqueos de taller (§2.10). El admin asigna por UNIDAD
 // (placa); el modelo solo entra como referencia de precio para kind='rental'.
+// Los ajustes de precio van en `pricing` (tarifa/descuento/extras + motivo);
+// el override directo de total desapareció a favor del desglose con causa.
 export const manualBookingSchema = z
   .object({
     kind: z.enum(['rental', 'block']),
@@ -108,7 +155,7 @@ export const manualBookingSchema = z
     extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).default([]),
     customer: customerSchema.optional(),
     depositType: z.enum(['deposit', 'on_pickup']).default('on_pickup'),
-    totalCentsOverride: z.number().int().min(0).optional(),
+    pricing: pricingOverridesSchema.optional(),
     notes: z.string().optional(),
   })
   .refine((d) => d.end > d.start, { message: 'La devolución debe ser posterior a la entrega' })

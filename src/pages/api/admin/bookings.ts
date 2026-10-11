@@ -6,7 +6,14 @@ import type { APIContext } from 'astro';
 import { sql, type Sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
 import { pickFreeUnit, isUnitFree, type ModelAvailability } from '../../../lib/availability';
-import { computeQuote, loadPricingContext, snapshotExtras } from '../../../lib/pricing';
+import {
+  computeQuote,
+  loadPricingContext,
+  snapshotExtras,
+  applyPricingOverrides,
+  buildPricingRecord,
+  pricingJson,
+} from '../../../lib/pricing';
 import { manualBookingSchema, generateBookingCode } from '../../../lib/validation';
 import type { ManualBookingInput } from '../../../lib/validation';
 
@@ -76,11 +83,6 @@ async function fetchModel(sqlTx: Sql, modelSlug: string): Promise<ModelAvailabil
   };
 }
 
-function withOverrideNote(notes: string | undefined, calculated: number, data: ManualBookingInput): string {
-  if (data.totalCentsOverride === undefined) return notes ?? '';
-  const reason = data.notes ? ` — ${data.notes}` : '';
-  return `Tarifa calculada ${calculated}, cobrado ${data.totalCentsOverride}${reason}`.trim();
-}
 
 export async function POST(context: APIContext): Promise<Response> {
   const admin = await requireAdminApi(context.cookies);
@@ -140,9 +142,48 @@ export async function POST(context: APIContext): Promise<Response> {
       const model = await fetchModel(sqlTx, data.modelSlug!);
       if (!model) return { unavailable: true as const };
 
-      const quote = computeQuote(model, data.start, data.end, data.pickupZone, data.extras, ctx);
-      const total = data.totalCentsOverride ?? quote.totalCents;
-      const notes = withOverrideNote(data.notes, quote.totalCents, data);
+      // Base calculada por el motor; los overrides del staff (tarifa fija,
+      // precios de extras, descuento) se aplican ENCIMA y quedan registrados
+      // en pricing con motivo y autor — nunca se pisa el total a ciegas.
+      const base = computeQuote(model, data.start, data.end, data.pickupZone, data.extras, ctx);
+      const overrides = data.pricing ?? {};
+      const quote = applyPricingOverrides(base, model, data.start, data.end, overrides, ctx);
+      const chosenExtras = overrides.extras ?? data.extras;
+      const extrasRecord = chosenExtras.map((sel) => {
+        const catalog = ctx.extrasCatalog.find((e) => e.id === sel.id);
+        return {
+          id: sel.id,
+          name: catalog?.name ?? `extra ${sel.id}`,
+          priceCents: Number(('priceCents' in sel ? sel.priceCents : undefined) ?? catalog?.priceCents ?? 0),
+          per: catalog?.per ?? ('rental' as const),
+          qty: sel.qty,
+        };
+      });
+      const pricing = buildPricingRecord(quote, {
+        dailyRateCents: overrides.dailyRateCents ?? model.dailyRateCents,
+        extras: extrasRecord,
+        pickupZone: data.pickupZone,
+        discount: overrides.discount
+          ? { ...overrides.discount, cents: base.subtotalCents - quote.subtotalCents, reason: overrides.reason ?? '' }
+          : quote.discountPct > 0
+            ? { kind: 'auto' }
+            : { kind: 'none' },
+        source: 'manual',
+        reason: overrides.reason,
+        editedBy: admin.email,
+      });
+
+      // El pedido tal como se capturó, congelado (diff del panel después).
+      const requested = {
+        channel: 'admin' as const,
+        model: { slug: model.slug, name: model.name },
+        start: data.start.toISOString(),
+        end: data.end.toISOString(),
+        pickupZone: data.pickupZone,
+        extras: extrasRecord.map((e) => ({ name: e.name, price_cents: e.priceCents, per: e.per, qty: e.qty })),
+        totalCents: pricing.totalCents,
+        createdAt: new Date().toISOString(),
+      };
 
       for (let attempt = 0; attempt < 3; attempt++) {
         const code = generateBookingCode();
@@ -151,14 +192,16 @@ export async function POST(context: APIContext): Promise<Response> {
             INSERT INTO bookings
               (code, kind, vehicle_id, customer_name, customer_email,
                customer_phone, flight_number, period, pickup_zone, extras,
-               total_cents, deposit_type, status, notes)
+               total_cents, deposit_type, status, notes, pricing, requested)
             VALUES
               (${code}, 'rental', ${unitId}, ${data.customer!.name},
                ${data.customer!.email ?? null}, ${data.customer!.phone ?? null},
                ${data.customer!.flightNumber ?? null},
                tstzrange(${data.start}::timestamptz, ${data.end}::timestamptz, '[)'),
                ${data.pickupZone}, ${sql.json(snapshotExtras(data.extras, ctx))}::jsonb,
-               ${total}, ${data.depositType}, 'confirmed', ${notes || null})
+               ${pricing.totalCents}, ${data.depositType}, 'confirmed',
+               ${data.notes ?? null}, ${sql.json(pricingJson(pricing))}::jsonb,
+               ${sql.json(requested)}::jsonb)
             RETURNING *
           `;
           return { booking: rows[0] };

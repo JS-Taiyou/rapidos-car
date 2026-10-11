@@ -70,6 +70,7 @@ export async function pickFreeUnit(
   start: Date,
   end: Date,
   bufferMinutes: number,
+  excludeBookingId = 0,
 ): Promise<number | null> {
   const rows = await sql`
     SELECT v.id
@@ -81,6 +82,7 @@ export async function pickFreeUnit(
       AND NOT EXISTS (
         SELECT 1 FROM bookings b
         WHERE b.vehicle_id = v.id
+          AND b.id <> ${excludeBookingId}
           AND b.status IN ('confirmed','active')
           AND b.period && tstzrange(
                 ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
@@ -103,6 +105,7 @@ export async function isUnitFree(
   start: Date,
   end: Date,
   bufferMinutes: number,
+  excludeBookingId = 0,
 ): Promise<boolean> {
   const rows = await sql`
     SELECT v.id
@@ -111,6 +114,7 @@ export async function isUnitFree(
       AND NOT EXISTS (
         SELECT 1 FROM bookings b
         WHERE b.vehicle_id = v.id
+          AND b.id <> ${excludeBookingId}
           AND b.status IN ('confirmed','active')
           AND b.period && tstzrange(
                 ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
