@@ -1,0 +1,121 @@
+---
+// Admin — Clientes (/admin/clientes) — SSR: lista del CRM con búsqueda
+// unificada (nombre/CURP/email/teléfono) por query param, cero JS.
+import { requireAdmin } from '../../lib/auth';
+import { sql } from '../../lib/db';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import '../../styles/global.css';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim();
+const like = `%${q}%`;
+const rows = await sql`
+  SELECT c.id, c.curp, c.full_name, c.email, c.phone, c.no_show,
+         COUNT(b.id) FILTER (WHERE b.kind = 'rental')::int AS rentals
+  FROM customers c
+  LEFT JOIN bookings b ON b.customer_id = c.id
+  WHERE ${q === ''}::boolean
+     OR c.full_name ILIKE ${like}
+     OR c.curp ILIKE ${like}
+     OR c.email ILIKE ${like}
+     OR c.phone ILIKE ${like}
+  GROUP BY c.id
+  ORDER BY c.created_at DESC
+  LIMIT 100
+`;
+const customers = rows.map((r) => ({
+  id: Number(r.id),
+  curp: r.curp as string | null,
+  name: r.full_name as string,
+  email: r.email as string | null,
+  phone: r.phone as string | null,
+  noShow: Boolean(r.no_show),
+  rentals: Number(r.rentals),
+}));
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Clientes — Rapidoz Admin</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <h1 class="text-2xl font-bold tracking-tight">Clientes</h1>
+        <form method="get" class="flex items-end gap-2">
+          <div>
+            <label for="cl-q" class="block text-xs text-muted-foreground">Buscar</label>
+            <input
+              id="cl-q"
+              type="search"
+              name="q"
+              value={q}
+              placeholder="nombre, CURP, email o teléfono"
+              class="h-9 w-72 rounded-md border bg-background px-3 text-sm"
+            />
+          </div>
+          <button type="submit" class="h-9 rounded-md bg-brand px-4 text-sm font-medium text-white">
+            Buscar
+          </button>
+        </form>
+      </div>
+
+      <div class="rounded-xl border bg-background">
+        {
+          customers.length === 0 ? (
+            <p class="px-5 py-10 text-center text-sm text-muted-foreground">
+              Sin clientes aún — se crean solos con la primera reservación.
+            </p>
+          ) : (
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th class="px-5 py-2">Cliente</th>
+                    <th class="px-3 py-2">CURP</th>
+                    <th class="px-3 py-2">Contacto</th>
+                    <th class="px-3 py-2">Rentas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customers.map((c) => (
+                    <tr class="cursor-pointer border-b transition-colors last:border-0 hover:bg-accent/50">
+                      <td class="px-5 py-2.5" colspan="4">
+                        <a href={`/admin/clientes/${c.id}`} class="flex items-center justify-between gap-3">
+                          <span class="font-medium">
+                            {c.name}
+                            {c.noShow && (
+                              <span class="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">
+                                NO-SHOW
+                              </span>
+                            )}
+                          </span>
+                          <span class="font-mono text-xs text-muted-foreground">{c.curp ?? 'sin CURP'}</span>
+                          <span class="text-muted-foreground">{c.email ?? c.phone ?? '—'}</span>
+                          <span class="font-semibold tabular-nums">{c.rentals}</span>
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Los expedientes se crean solos con cada reservación (match por email/teléfono); el CURP lo captura
+        el staff al firmar y unifica expedientes duplicados.
+      </p>
+    </main>
+  </body>
+</html>

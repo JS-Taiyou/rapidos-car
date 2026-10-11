@@ -16,6 +16,7 @@ import {
 } from '../../../lib/pricing';
 import { manualBookingSchema, generateBookingCode } from '../../../lib/validation';
 import type { ManualBookingInput } from '../../../lib/validation';
+import { linkBookingToCustomer } from '../../../lib/customers';
 
 export const prerender = false;
 
@@ -215,6 +216,16 @@ export async function POST(context: APIContext): Promise<Response> {
 
     if ('unavailable' in result) {
       return json({ error: 'unavailable' }, 409);
+    }
+    // CRM: find-or-link del cliente capturado (best-effort).
+    try {
+      await linkBookingToCustomer(sql, Number(result.booking.id), {
+        name: data.customer?.name ?? '',
+        email: data.customer?.email ?? null,
+        phone: data.customer?.phone ?? null,
+      });
+    } catch (crmErr) {
+      console.error('CRM: no se pudo vincular el cliente:', crmErr);
     }
     // SIN whatsappUrl: la captura manual no dispara mensaje automático (el
     // staff ya tiene al cliente enfrente o al teléfono).

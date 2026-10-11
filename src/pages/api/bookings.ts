@@ -18,6 +18,7 @@ import {
 import { bookingInputSchema, generateBookingCode } from '../../lib/validation';
 import { buildWhatsAppUrl, bookingConfirmationMessage } from '../../lib/whatsapp';
 import { broadcastNewBooking } from '../../lib/alerts';
+import { linkBookingToCustomer } from '../../lib/customers';
 
 export const prerender = false;
 
@@ -210,6 +211,15 @@ export async function POST(context: APIContext): Promise<Response> {
                ${sql.json(lead)}::jsonb, 'Lead web: sin disponibilidad al intentar reservar')
             RETURNING id, code
           `;
+          try {
+            await linkBookingToCustomer(sql, Number(rows2[0].id), {
+              name: customer.name,
+              email: customer.email,
+              phone: customer.phone,
+            });
+          } catch {
+            // best-effort: el lead vive aunque el vínculo falle
+          }
           broadcastNewBooking({
             id: Number(rows2[0].id),
             code: rows2[0].code as string,
@@ -229,6 +239,18 @@ export async function POST(context: APIContext): Promise<Response> {
 
     // La renta web nace 'confirmed': los 'quoted' no apartan inventario.
     const { booking, modelName } = result;
+
+    // CRM: find-or-link del cliente (best-effort: si falla, la reservación
+    // vive; el vínculo se puede crear después desde el expediente).
+    try {
+      await linkBookingToCustomer(sql, result.booking.id, {
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+      });
+    } catch (crmErr) {
+      console.error('CRM: no se pudo vincular el cliente:', crmErr);
+    }
 
     // Push en vivo a las pestañas del staff conectadas (globito + beep).
     broadcastNewBooking({

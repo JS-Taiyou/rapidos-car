@@ -1,0 +1,89 @@
+---
+// Admin — Expediente de cliente (/admin/clientes/[id]) — SSR: pantalla
+// propia al estilo del editor de modelos. El frontmatter hace la guardia y
+// carga el expediente; la isla CustomerEditor maneja edición, CURP
+// (con auto-unificación) y muestra historiales.
+import { requireAdmin } from '../../../lib/auth';
+import { sql } from '../../../lib/db';
+import AdminNav from '../../../components/admin/AdminNav.astro';
+import CustomerEditor from '../../../components/react/admin/CustomerEditor.tsx';
+import '../../../styles/global.css';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const id = parseInt(Astro.params.id ?? '', 10);
+if (Number.isNaN(id)) Astro.response.status = 404;
+
+const rows = Number.isNaN(id)
+  ? []
+  : await sql`
+      SELECT c.*, COUNT(b.id) FILTER (WHERE b.kind = 'rental')::int AS rentals
+      FROM customers c
+      LEFT JOIN bookings b ON b.customer_id = c.id
+      WHERE c.id = ${id}
+      GROUP BY c.id
+      LIMIT 1
+    `;
+const row = rows[0];
+if (!row) Astro.response.status = 404;
+
+const customer = row
+  ? {
+      id: Number(row.id),
+      curp: (row.curp as string | null) ?? '',
+      fullName: row.full_name as string,
+      email: (row.email as string | null) ?? '',
+      phone: (row.phone as string | null) ?? '',
+      notes: (row.notes as string | null) ?? '',
+      noShow: Boolean(row.no_show),
+      contactHistory: (row.contact_history ?? []) as Array<{ kind: string; value: string; retiredAt: string }>,
+      rentals: Number(row.rentals),
+    }
+  : null;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>{customer ? `${customer.fullName} — Rapidoz Admin` : 'No encontrado — Rapidoz Admin'}</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-5xl px-4 py-8">
+      {
+        customer ? (
+          <>
+            <a
+              href="/admin/clientes"
+              class="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-brand"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M19 12H5m7-7-7 7 7 7" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              Volver a clientes
+            </a>
+            <header class="mt-3 mb-6">
+              <p class="text-sm text-muted-foreground">Cliente</p>
+              <h1 class="text-3xl font-bold tracking-tight">{customer.fullName}</h1>
+              <p class="mt-1 text-xs text-muted-foreground">
+                {customer.rentals} rentas {customer.curp ? `· CURP capturado` : '· sin CURP'}
+              </p>
+            </header>
+            <CustomerEditor client:load customer={customer} />
+          </>
+        ) : (
+          <div class="py-20 text-center">
+            <h1 class="text-2xl font-bold">Ese expediente no existe</h1>
+            <a href="/admin/clientes" class="mt-4 inline-block text-brand hover:underline">← Volver a clientes</a>
+          </div>
+        )
+      }
+    </main>
+  </body>
+</html>
