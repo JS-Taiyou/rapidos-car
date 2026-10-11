@@ -1,114 +1,174 @@
-// ============================================================================
-// API: POST /api/bookings — crea reservación (EL endpoint crítico del MVP)
-// ============================================================================
-// PROPÓSITO
-// Convertir una cotización en reservación real: amarrar UNA unidad física
-// dentro de una transacción, recalcular el precio en servidor e insertar el
-// booking. Si hay carrera o manipulación, la BD decide (ARCHITECTURE §2.9,
-// spec §2).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * NUNCA confiar en totales del cliente: cualquiera puede editar el JSON en
-//   devtools. El servidor recalcula con computeQuote y los mismos inputs; el
-//   total que traiga el body se ignora por completo (ARCHITECTURE §2.9).
-// * Dos líneas de defensa, una sola respuesta al cliente: pickFreeUnit con
-//   FOR UPDATE es OPTIMISTA (serializa la carrera por placa); la constraint
-//   no_overlap es la ÚLTIMA línea — si aun así hay solape, Postgres lanza
-//   SQLSTATE 23P01 y lo traducimos al mismo 409 (001_init.sql paso 4).
-// * El código RPZ-XXXXXX se genera con crypto.getRandomValues sobre un
-//   alfabeto sin ambiguos (sin 0/O/1/I/L): se dicta por teléfono. Chocar con
-//   UNIQUE es casi imposible (32^6 ≈ 10^9 combinaciones) pero el retry
-//   documenta el patrón "generar → insertar → reintentar si 23505".
-// * extras se guardan como SNAPSHOT jsonb (name + price_cents + per del
-//   catálogo EN ESTE MOMENTO): el catálogo puede cambiar mañana; la reserva
-//   de hoy no (001_init.sql paso 3).
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. export const prerender = false (COMENTADO hasta instalar el adapter —
-//    ARCHITECTURE §6).
-// 2. Imports (comentados): type APIContext de 'astro'; sql de '../../lib/db';
-//    pickFreeUnit de '../../lib/availability'; computeQuote de
-//    '../../lib/pricing'; bookingInputSchema de '../../lib/validation';
-//    buildWhatsAppUrl y bookingConfirmationMessage de '../../lib/whatsapp'.
-//    Mismo helper json(data, status) que en quote.ts.
-// 3. export async function POST(context: APIContext):
-//    a. request.json() en try/catch → 400 { error: 'invalid_json' }.
-//    b. bookingInputSchema.safeParse(body) → 400 { error: 'validation',
-//       issues } si falla (§2.12). Extrae: modelSlug, start, end, pickupZone,
-//       extras, customer { name, email, phone, flightNumber? }, depositType,
-//       lang? ('es' default).
-//    c. Carga el ctx de precios EXACTAMENTE como /api/quote (Promise.all de
-//       seasons activas, extras activos, settings→objeto). Duplicar 10 líneas
-//       aquí es preferible a acoplar los endpoints; si crece, extrae
-//       loadPricingContext(sql) a pricing.ts. ANTES de la transacción valida
-//       que cada extra pedido exista y esté activo en el catálogo → 400
-//       { error: 'unknown_extra' } si no.
-//    d. const buffer = Number(settings.turnaround_buffer_minutes).
-//    e. TRANSACCIÓN: const result = await sql.begin(async sqlTx => { ... }).
-//       Regla de oro de postgres.js: COMMIT de lo que devuelves, ROLLBACK de
-//       lo que lanzas. Dentro (TODO con sqlTx, JAMÁS con el sql global):
-//       1. unitId = await pickFreeUnit(sqlTx, modelSlug, start, end, buffer).
-//          Si es null: return { unavailable: true } — sentinel, no excepción:
-//          como aún no escribiste nada, el COMMIT vacío equivale al rollback
-//          y evitas usar excepciones como flujo de control.
-//       2. quote = computeQuote(model, start, end, pickupZone, extras, ctx) —
-//          recalculado en servidor (DECISIONES #1). Es puro: no cuenta contra
-//          la BD ni alarga la transacción con roundtrips.
-//       3. code = generateBookingCode(): 'RPZ-' + 6 chars del alfabeto
-//          'ABCDEFGHJKMNPQRSTUVWXYZ23456789' con crypto.getRandomValues
-//          (Web Crypto de Node 22, §2.11 mismo criterio).
-//       4. INSERT INTO bookings (code, kind, vehicle_id, customer_name,
-//          customer_email, customer_phone, flight_number, period, pickup_zone,
-//          extras, total_cents, deposit_type, status) VALUES (${code},
-//          'rental', ${unitId}, ..., tstzrange(${start}, ${end}, '[)'),
-//          ${JSON.stringify(snapshotExtras)}, ${quote.totalCents},
-//          ${depositType}, 'confirmed') RETURNING id, code, period, total_cents
-//          — snapshotExtras: [{ name, price_cents, per, qty }] copiados del
-//          extrasCatalog del paso c, NO del body.
-//       5. Si el INSERT lanza 23505 por code duplicado: regenera y reintenta
-//          (loop de máx 3 — probabilidad ~0; lo importante es el patrón).
-//       6. return { booking: row, quote }.
-//    f. Fuera: if (result.unavailable) → 409 { error: 'unavailable' } (el
-//       wizard recarga el paso de autos, ARCHITECTURE §4).
-//    g. catch (err): if (err.code === '23P01') → el MISMO 409
-//       { error: 'unavailable' } — la constraint es quien decide en la carrera
-//       final (spec §2). Otro error: console.error(err) con el body sanitizado
-//       y 500 { error: 'internal' }; nunca err.message crudo al cliente.
-//    h. Éxito: message = bookingConfirmationMessage(result.booking, lang);
-//       whatsappUrl = buildWhatsAppUrl(settings.whatsapp_staff_number, message);
-//       201 { booking: { id, code, period, totalCents, depositCents },
-//       whatsappUrl } — depositCents: el anticipo según depositType y las
-//       reglas de settings (0 si es 'on_pickup'); ver pricing.ts.
-//    i. TODO (fase 1, spec §5): alerta a staff — deep link wa.me hacia
-//       settings.whatsapp_staff_number incluido en el email transaccional al
-//       cliente; el envío por WhatsApp Business API es fase 2.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// POST /api/bookings
-//   { modelSlug, start, end, pickupZone, extras: [{ id, qty }],
-//     customer: { name, email, phone, flightNumber? },
-//     depositType: 'deposit'|'on_pickup', lang?: 'es'|'en' }
-// 201 { booking: { id, code, period, totalCents, depositCents }, whatsappUrl }
-// Errores: 400 invalid_json / validation / unknown_extra ·
-//          409 { error: 'unavailable' } · 405 · 500 { error: 'internal' }
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// - Hacer queries con el sql global DENTRO de sql.begin: quedan FUERA de la
-//   transacción (sin FOR UPDATE ni atomicidad). Todo lo de adentro va con sqlTx.
-// - No expandir el buffer igual que availability.ts (mismo bufferMinutes, misma
-//   expansión en ambos extremos): si difieren, /api/quote muestra libre lo que
-//   /api/bookings rechaza.
-// - Devolver 500 genérico sin console.error: en serverless no hay disco; el log
-//   es tu única evidencia.
-// - Confiar el total del body (DECISIONES #1).
-// - Insertar con status 'quoted' pensando "confirmar después": los quoted NO
-//   bloquean (WHERE parcial de la constraint); la renta web nace 'confirmed'.
-// ============================================================================
+// POST /api/bookings — crea reservación (EL endpoint crítico del MVP).
+// NUNCA confía en totales del cliente: el servidor recalcula con computeQuote
+// (ARCHITECTURE §2.9). Dos líneas de defensa: pickFreeUnit con FOR UPDATE
+// (serializa la carrera por placa) y la constraint no_overlap (si aun así
+// hay solape, Postgres lanza 23P01 → mismo 409).
+import type { APIContext } from 'astro';
+import { sql, type Sql } from '../../lib/db';
+import { pickFreeUnit, type ModelAvailability } from '../../lib/availability';
+import {
+  computeQuote,
+  loadPricingContext,
+  snapshotExtras,
+  type PricingContext,
+  type PriceBreakdown,
+} from '../../lib/pricing';
+import { bookingInputSchema, generateBookingCode } from '../../lib/validation';
+import { buildWhatsAppUrl, bookingConfirmationMessage } from '../../lib/whatsapp';
+
+export const prerender = false;
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+async function fetchModel(
+  sqlTx: Sql,
+  modelSlug: string,
+): Promise<ModelAvailability | null> {
+  const rows = await sqlTx`
+    SELECT slug, name, category, transmission, seats, luggage,
+           daily_rate_cents, photos
+    FROM vehicle_models
+    WHERE slug = ${modelSlug} AND active = true
+    LIMIT 1
+  `;
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    slug: r.slug as string,
+    name: r.name as string,
+    category: r.category as string,
+    transmission: r.transmission as string,
+    seats: Number(r.seats),
+    luggage: Number(r.luggage),
+    dailyRateCents: Number(r.daily_rate_cents),
+    photos: (r.photos as string[]) ?? [],
+    unitsAvailable: 0,
+  };
+}
+
+export async function POST(context: APIContext): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await context.request.json();
+  } catch {
+    return json({ error: 'invalid_json' }, 400);
+  }
+
+  const parsed = bookingInputSchema.safeParse(body);
+  if (!parsed.success) {
+    return json({ error: 'validation', issues: parsed.error.issues }, 400);
+  }
+  const { modelSlug, start, end, pickupZone, extras, customer, depositType, lang } = parsed.data;
+
+  // Carga el ctx de precios ANTES de la transacción (lo mismo que
+  // /api/quote). Validación de extras contra el catálogo activo.
+  const ctx: PricingContext = await loadPricingContext(sql);
+  const unknownExtra = extras.find((sel) => !ctx.extrasCatalog.some((e) => e.id === sel.id));
+  if (unknownExtra) {
+    return json({ error: 'unknown_extra', id: unknownExtra.id }, 400);
+  }
+
+  const buffer = ctx.settings.turnaroundBufferMinutes;
+  const snapshot = snapshotExtras(extras, ctx);
+
+  try {
+    const result = await sql.begin(async (sqlTx) => {
+      const unitId = await pickFreeUnit(sqlTx, modelSlug, start, end, buffer);
+      if (unitId === null) {
+        // Sentinel, no excepción: aún no se escribió nada; el COMMIT vacío
+        // equivale al rollback.
+        return { unavailable: true as const };
+      }
+
+      const model = await fetchModel(sqlTx, modelSlug);
+      if (!model) return { unavailable: true as const };
+
+      // Recalculado en servidor: puro, no alarga la transacción.
+      const quote: PriceBreakdown = computeQuote(model, start, end, pickupZone, extras, ctx);
+
+      // Retry por 23505 de code duplicado (probabilidad ~0; importa el
+      // patrón generar → insertar → reintentar).
+      let inserted: { id: number; code: string } | undefined;
+      for (let attempt = 0; attempt < 3 && !inserted; attempt++) {
+        const code = generateBookingCode();
+        try {
+          const rows = await sqlTx`
+            INSERT INTO bookings
+              (code, kind, vehicle_id, customer_name, customer_email,
+               customer_phone, flight_number, period, pickup_zone, extras,
+               total_cents, deposit_type, status)
+            VALUES
+              (${code}, 'rental', ${unitId}, ${customer.name}, ${customer.email},
+               ${customer.phone}, ${customer.flightNumber ?? null},
+               tstzrange(${start}::timestamptz, ${end}::timestamptz, '[)'),
+               ${pickupZone}, ${sql.json(snapshot)}::jsonb, ${quote.totalCents},
+               ${depositType}, 'confirmed')
+            RETURNING id, code
+          `;
+          inserted = { id: Number(rows[0].id), code: rows[0].code as string };
+        } catch (err) {
+          const pgErr = err as { code?: string };
+          if (pgErr.code === '23505') continue;
+          throw err;
+        }
+      }
+      if (!inserted) throw new Error('no se pudo generar un código único');
+
+      return { booking: { ...inserted, quote }, modelName: model.name };
+    });
+
+    if ('unavailable' in result) {
+      // El wizard recarga el paso de autos (ARCHITECTURE §4).
+      return json({ error: 'unavailable' }, 409);
+    }
+
+    // La renta web nace 'confirmed': los 'quoted' no apartan inventario.
+    const { booking, modelName } = result;
+    const message = bookingConfirmationMessage(
+      {
+        code: booking.code,
+        modelName,
+        start,
+        end,
+        pickupZone,
+        totalCents: booking.quote.totalCents,
+        depositCents: depositType === 'deposit' ? booking.quote.depositCents : 0,
+      },
+      lang,
+    );
+    // El deep link wa.me ES la notificación del MVP (spec §5): el mensaje
+    // sale del teléfono del cliente hacia el negocio.
+    const whatsappUrl = buildWhatsAppUrl(message, ctx.settings.whatsappStaffNumber);
+
+    return json(
+      {
+        booking: {
+          id: booking.id,
+          code: booking.code,
+          totalCents: booking.quote.totalCents,
+          depositCents: depositType === 'deposit' ? booking.quote.depositCents : 0,
+          period: { start: start.toISOString(), end: end.toISOString() },
+        },
+        whatsappUrl,
+      },
+      201,
+    );
+  } catch (err) {
+    const pgErr = err as { code?: string };
+    // La constraint es quien decide en la carrera final (exclusion_violation).
+    if (pgErr.code === '23P01') {
+      return json({ error: 'unavailable' }, 409);
+    }
+    console.error('POST /api/bookings falló:', err);
+    return json({ error: 'internal' }, 500);
+  }
+}
+
+export function ALL(): Response {
+  return new Response(null, { status: 405, headers: { Allow: 'POST' } });
+}

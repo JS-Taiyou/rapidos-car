@@ -1,85 +1,115 @@
 ---
-// ============================================================================
-// COMPONENTE: CarCard — tarjeta de modelo para catálogos (flota y home)
-// ============================================================================
-// PROPÓSITO: resumir un modelo de vehículo (foto, specs, tarifa "desde") y
-// llevar al detalle. Se usa en /flota (grid completo, datos de BD) y en la
-// home (preview con datos semilla).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * Componente Astro PURO, cero JS: el catálogo no tiene interacción — las
-//   islas van solo donde la hay (ARCHITECTURE §2.1). Nada de onClick para
-//   navegar: el <a> nativo ya navega, es accesible y abre en pestaña nueva.
-// * Precio formateado EN SERVIDOR con Intl.NumberFormat: el frontmatter
-//   corre en build/SSR, así el HTML llega con "$850" ya puesto — sin
-//   formateo en cliente ni flash de precio crudo. dailyRateCents es entero
-//   en centavos (ARCHITECTURE §2.13): divide entre 100 ANTES de formatear.
-// * <img> con width/height FIJOS y loading="lazy": dimensiones fijas
-//   reservan la caja y evitan CLS (spec §6, Core Web Vitals); lazy porque
-//   el grid puede tener 10+ fotos. (La primera card above-the-fold puede
-//   llevar eager si parametrizas una prop `priority` — opcional.)
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Props (contrato fijo; lo consumen flota/index.astro y la home):
-//      interface Props {
-//        model: {
-//          slug: string; name: string; category: string
-//          transmission: string; seats: number; luggage: number
-//          dailyRateCents: number; photos: string[]
-//        }
-//        lang: Lang
-//      }
-//    El objeto coincide con las columnas de vehicle_models (001_init paso
-//    2) tras mapear snake_case a camelCase — quien consulta la BD lo mapea.
-// 2. En el frontmatter: const t = useTranslations(lang); const price =
-//    new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
-//    maximumFractionDigits: 0 }).format(model.dailyRateCents / 100).
-//    Moneda siempre MXN aunque lang sea 'en' (el negocio cobra en pesos) —
-//    decide el locale de formato ('es-MX' vs 'en-MX') una sola vez y
-//    documéntalo en ui.ts.
-// 3. Template (<article> con borde redondeado y hover sutil):
-//    a. FOTO: primer elemento de model.photos; si photos está vacío, un
-//       placeholder SVG de /public — NUNCA romper el layout por falta de
-//       foto. <img src alt={model.name} width height loading="lazy"> con
-//       ratio consistente (p.ej. 16:10) en todas las cards.
-//    b. NOMBRE + CATEGORÍA: <h3> con model.name y etiqueta con
-//       t(`fleet.category.${model.category}`) — la categoría se traduce,
-//       no se muestra cruda de la BD. El nombre del auto NO se traduce.
-//    c. SPECS: fila de 3 items con iconos SVG inline (Heroicons MIT, sin
-//       librería de iconos: son 3 paths): asientos (model.seats), maletas
-//       (model.luggage) y transmisión (t('fleet.transmission.' + …)).
-//    d. PRECIO: t('fleet.from') + price + t('fleet.perDay') → "Desde $850
-//       MXN/día". Es tarifa base: temporadas y descuentos se explican en el
-//       detalle y en la cotización — NO calcules precio final aquí.
-//    e. LINK: "Ver detalle" → getLocalizedPath(`/flota/${model.slug}`,
-//       lang). Decide: o envuelves la tarjeta entera con el <a> (técnica
-//       stretched-link) o solo el CTA — ambos es redundante para lectores
-//       de pantalla.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Props: { model, lang }. Consume: useTranslations, getLocalizedPath.
-// Expone: nada. Lo usan flota/index.astro (datos de BD) e index.astro
-// (datos semilla del frontmatter).
-//
-// ERRORES COMUNES
-// - Aritmética de floats con los centavos → divide /100 y usa
-//   maximumFractionDigits: 0.
-// - Fotos sin width/height → CLS en 4G (spec §6).
-// - onClick={navigate} → JS innecesario; <a> nativo siempre.
-// - Traducir "Nissan Versa 2023" → los nombres propios no se traducen; se
-//   traducen categoría y etiquetas.
-// ============================================================================
+// Tarjeta de modelo para catálogos (flota y home). Componente Astro PURO:
+// cero JS, el <a> nativo navega. Precio formateado EN SERVIDOR.
+import { useTranslations, getLocalizedPath, type Lang } from '../i18n/utils';
+
+interface Props {
+  model: {
+    slug: string;
+    name: string;
+    category: string;
+    transmission: string;
+    seats: number;
+    luggage: number;
+    dailyRateCents: number;
+    photos: string[];
+  };
+  lang: Lang;
+}
+
+const { model, lang } = Astro.props;
+const t = useTranslations(lang);
+
+// Moneda SIEMPRE MXN (el negocio cobra en pesos), máximo sin decimales.
+const price = new Intl.NumberFormat('es-MX', {
+  style: 'currency',
+  currency: 'MXN',
+  maximumFractionDigits: 0,
+}).format(model.dailyRateCents / 100);
+
+const detailUrl = getLocalizedPath(`/flota/${model.slug}`, lang);
 ---
 
-<!-- =========================================================================
-     TEMPLATE: <article> tarjeta: foto 16:10 con dimensiones fijas, cuerpo
-     con nombre/categoría, fila de 3 specs con SVG inline, precio formateado
-     y link "Ver detalle". Todo texto de UI vía t(); datos del auto vía
-     props.
-     ========================================================================== -->
+<article
+  class="group overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md"
+>
+  <a href={detailUrl} class="block focus-visible:outline-none">
+    <!-- Mini carrusel cero-JS: tira con scroll-snap; en móvil se desliza con
+         el dedo y en desktop arrastrando. Cada foto tiene placeholder con
+         shimmer (img-loading) y aparece con fade-in al terminar de cargar;
+         si falla, queda el emoji sobre el placeholder (onerror). -->
+    {
+      model.photos.length > 0 ? (
+        <div class="flex snap-x snap-mandatory overflow-x-auto scrollbar-none aspect-[16/10] w-full">
+          {model.photos.map((photo, i) => (
+            <div class="img-loading relative flex h-full w-full shrink-0 snap-center items-center justify-center">
+              <span class="text-4xl opacity-50" aria-hidden="true">
+                🚗
+              </span>
+              <img
+                src={photo}
+                alt={i === 0 ? model.name : `${model.name} — foto ${i + 1}`}
+                width="640"
+                height="400"
+                loading="lazy"
+                decoding="async"
+                class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
+                onload="this.classList.add('opacity-100');this.parentElement.classList.add('is-loaded')"
+                onerror="this.parentElement.classList.add('is-loaded')"
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div class="flex aspect-[16/10] w-full items-center justify-center bg-gradient-to-br from-brand-soft to-muted text-5xl" aria-hidden="true">
+          🚗
+        </div>
+      )
+    }
+    {
+      model.photos.length > 1 && (
+        <div class="flex justify-center gap-1.5 py-1.5" aria-hidden="true">
+          {model.photos.map((_, i) => (
+            <span class:list={['h-1.5 w-1.5 rounded-full', i === 0 ? 'bg-brand' : 'bg-border']} />
+          ))}
+        </div>
+      )
+    }
+    <div class="space-y-3 p-4">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="font-semibold leading-tight">{model.name}</h3>
+        <span class="rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand-dark">
+          {t(`fleet.category.${model.category}`)}
+        </span>
+      </div>
+      <ul class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <li class="flex items-center gap-1.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          {model.seats} {t('fleet.specs.seats')}
+        </li>
+        <li class="flex items-center gap-1.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M6 7V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3m4 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3M4 7h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          {model.luggage} {t('fleet.specs.luggage')}
+        </li>
+        <li class="flex items-center gap-1.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M10 4h4M12 4v16m-8-8h4m8 0h4" stroke-linecap="round"></path>
+          </svg>
+          {t(`fleet.transmission.${model.transmission}`)}
+        </li>
+      </ul>
+      <div class="flex items-baseline gap-1">
+        <span class="text-sm text-muted-foreground">{t('fleet.from')}</span>
+        <span class="text-xl font-bold text-brand">{price}</span>
+        <span class="text-sm text-muted-foreground">{t('fleet.perDay')}</span>
+      </div>
+      <span class="inline-block text-sm font-medium text-brand group-hover:underline">
+        {t('fleet.cta')} →
+      </span>
+    </div>
+  </a>
+</article>

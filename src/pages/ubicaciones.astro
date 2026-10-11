@@ -1,74 +1,89 @@
 ---
-// ============================================================================
-// PÁGINA: Ubicaciones ES (/ubicaciones) — estática
-// ============================================================================
-// PROPÓSITO: explicar DÓNDE y CÓMO se entrega el auto (aeropuerto MID y
-// entrega a hotel) para quitar fricción antes de reservar (spec §3.4).
-//
-// Render: ESTÁTICA — decisión deliberada: las zonas y tarifas de entrega
-// (delivery_zones en settings, 001_init paso 3) cambian una vez al año; con
-// SSR pagarías una query por visita para leer siempre lo mismo. Los datos
-// aquí son los del seed escritos a mano en ui.ts, y CAMBIAR TARIFAS =
-// EDITAR ui.ts + redeploy. OPCIÓN SSR documentada: si el negocio empieza a
-// mover tarifas seguido, agrega prerender=false (con adapter instalado) y
-// lee settings.delivery_zones con sql — anota aquí cuándo se activó.
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * Claves NUEVAS en ui.ts: esta página requiere agregar el bloque
-//   locations.* (títulos, proceso, zonas, notas) en AMBOS idiomas antes de
-//   implementar — las claves se listan en los pasos y el espejo EN
-//   (/en/locations) usa exactamente las mismas.
-// * Mapa con iframe oficial de Google Maps (maps.google.com → "Compartir →
-//   Insertar mapa") con loading="lazy": cero costo de API key y cero SDK JS
-//   pesado (~200 kB que no pagamos); lazy porque está below-the-fold. Un
-//   SDK interactivo no aporta nada a "ver dónde estamos".
-// * flight_number: mencionar que en el aeropuerto se pide el número de
-//   vuelo en la reservación (bookings.flight_number, 001_init paso 4) para
-//   rastrear retrasos — vende la ventaja operativa (spec §5) aunque el
-//   tracking automático sea fase 2 (ARCHITECTURE §7).
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Imports: BaseLayout ('../layouts/BaseLayout.astro'),
-//    useTranslations/getLocalizedPath de '../i18n/utils', buildWhatsAppUrl
-//    de '../lib/whatsapp'.
-// 2. Sección AEROPUERTO (MID): t('locations.airport.title'), punto de
-//    reunión (t('locations.airport.meetingPoint') — describir el módulo o
-//    la salida de llegadas donde espera el staff), proceso de entrega en
-//    terminal como lista ordenada <ol> (llegada → aviso por WhatsApp →
-//    entrega y firma) y la nota de vuelo t('locations.airport.flightNote').
-// 3. Sección ENTREGA A HOTEL: lista de zonas con tarifa — los datos del
-//    seed (centro, norte, zona hotelera) como t('locations.zones.centro')
-//    etc., con su fee en MXN formateado como en CarCard (Intl.NumberFormat)
-//    — tiempos estimados de entrega y nota de que la zona se elige al
-//    cotizar (pickup_zone del wizard).
-// 4. MAPA: iframe embebido centrado en Mérida o en el aeropuerto, con
-//    loading="lazy", title descriptivo (accesibilidad), ancho 100% y alto
-//    fijo reservado (sin CLS).
-// 5. CTA final: botón a getLocalizedPath('/reservar', 'es') + WhatsApp
-//    secundario (spec §3.6: todo camino termina en el funnel).
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Consume: BaseLayout, i18n (claves locations.* NUEVAS — agregarlas a
-// ui.ts), whatsapp.ts. Estática: no toca la BD. Espejo EN: /en/locations
-// con alternateUrl="/ubicaciones".
-//
-// ERRORES COMUNES
-// - SSR "por si acaso" → una query por visita para datos anuales.
-// - SDK de Maps con API key → costo y JS sin beneficio frente al iframe.
-// - Tarifas hardcodeadas en el HTML → se olvidan al cambiar el seed; van en
-//   ui.ts (bilingüe) o se activa el modo SSR — nunca texto plano duplicado.
-// - Iframe sin loading="lazy" ni title → peso innecesario y a11y rota.
-// ============================================================================
+// Ubicaciones ES (/ubicaciones) — estática deliberada: las zonas cambian
+// una vez al año; una query por visita sería overhead puro. Los datos son
+// los del seed (mismos que DELIVERY_ZONES); cambiar tarifas = editar
+// ui.ts/zonas + redeploy (modo SSR documentado en la guía si cambia).
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { useTranslations, getLocalizedPath } from '../i18n/utils';
+
+const t = useTranslations('es');
+
+const feeFmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+const zones = [
+  { key: 'airport_mid', feeCents: 0 },
+  { key: 'centro', feeCents: 15000 },
+  { key: 'norte', feeCents: 20000 },
+  { key: 'hotel_zone', feeCents: 25000 },
+];
 ---
 
-<!-- =========================================================================
-     TEMPLATE: BaseLayout > sección aeropuerto (punto de reunión + <ol> de
-     proceso + nota de vuelo) > sección zonas de hotel (lista con tarifas) >
-     iframe de mapa lazy > CTA a /reservar y WhatsApp.
-     ========================================================================== -->
+<BaseLayout lang="es" title={`${t('locations.title')} — Rapidoz Rental`} description={t('locations.subtitle')} alternateUrl="/en/locations">
+  <section class="mx-auto max-w-4xl px-4 py-12">
+    <h1 class="text-3xl font-bold tracking-tight">{t('locations.title')}</h1>
+    <p class="mt-2 text-muted-foreground">{t('locations.subtitle')}</p>
+
+    <div class="mt-10 grid gap-8 sm:grid-cols-2">
+      <div>
+        <h2 class="text-lg font-semibold">{t('locations.airport.title')}</h2>
+        <p class="mt-3 text-sm text-muted-foreground">{t('locations.airport.meetingPoint')}</p>
+        <ol class="mt-4 space-y-2 text-sm">
+          <li class="flex gap-2">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">1</span>
+            {t('locations.airport.step1')}
+          </li>
+          <li class="flex gap-2">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">2</span>
+            {t('locations.airport.step2')}
+          </li>
+          <li class="flex gap-2">
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">3</span>
+            {t('locations.airport.step3')}
+          </li>
+        </ol>
+        <p class="mt-4 rounded-lg bg-brand-soft p-3 text-sm text-brand-dark">
+          ✈️ {t('locations.airport.flightNote')}
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-lg font-semibold">{t('locations.hotel.title')}</h2>
+        <p class="mt-3 text-sm text-muted-foreground">{t('locations.hotel.note')}</p>
+        <ul class="mt-4 divide-y rounded-xl border text-sm">
+          {
+            zones.map((zone) => (
+              <li class="flex items-center justify-between gap-3 p-3">
+                <div>
+                  <p class="font-medium">{t(`locations.zones.${zone.key}.name`)}</p>
+                  <p class="text-xs text-muted-foreground">{t(`locations.zones.${zone.key}.desc`)}</p>
+                </div>
+                <span class="shrink-0 font-semibold">
+                  {zone.feeCents === 0 ? 'Gratis' : `+${feeFmt.format(zone.feeCents / 100)}`}
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </div>
+
+    <div class="mt-10 overflow-hidden rounded-xl border">
+      <iframe
+        title={t('locations.mapTitle')}
+        src="https://www.google.com/maps?q=Aeropuerto%20Internacional%20de%20M%C3%A9rida&output=embed"
+        width="100%"
+        height="360"
+        loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade"
+      ></iframe>
+    </div>
+
+    <div class="mt-8 text-center">
+      <a
+        href={getLocalizedPath('/reservar', 'es')}
+        class="inline-flex items-center justify-center rounded-lg bg-brand px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-dark"
+      >
+        {t('locations.cta')}
+      </a>
+    </div>
+  </section>
+</BaseLayout>

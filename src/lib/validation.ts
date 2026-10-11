@@ -1,140 +1,133 @@
-// ============================================================================
-// LIB: validation — esquemas zod compartidos cliente/servidor (ARCHITECTURE §2.12)
-// ============================================================================
-// Propósito: UN solo contrato por recurso. Los mismos schemas alimentan
-// (a) react-hook-form en las islas vía zodResolver (errores en vivo) y
-// (b) schema.safeParse(body) en los endpoints ANTES de tocar la BD. Mensajes
-// coherentes en cliente y servidor; el schema es documentación ejecutable.
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * zod y no validación a mano: el resolver oficial @hookform/resolvers lo
-//   enchufa a RHF sin código extra, y z.infer deriva los tipos TS de los
-//   propios schemas — imposible que tipo y validador se desincronicen.
-// * z.coerce.date() para fechas: JSON no tiene Date; lo que llega del cliente
-//   es string ISO 8601. z.coerce.date() lo convierte y valida en un paso —
-//   si usaras z.date() puro, todo body JSON fallaría siempre.
-// * Mensajes de error en español (el admin y la mayoría de clientes son ES);
-//   la isla EN mapea el código del issue si quiere variar el texto.
-// * Este archivo es PURO (sin imports de Astro ni db): lo importan endpoints
-//   (servidor) e islas (cliente); igual que whatsapp.ts, no debe arrastrar
-//   runtime. Aquí NO se importa db.ts — nunca.
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Importar:  import { z } from 'zod'   (npm i zod, ARCHITECTURE §6 paso 1).
-//
-// 2. customerSchema — datos del cliente (paso 4 de BookingFlow):
-//      export const customerSchema = z.object({
-//        name: z.string().min(2),
-//        email: z.string().email(),
-//        phone: z.string().min(8).regex(/^[\d\s+()-]+$/) — solo dígitos y
-//               caracteres telefónicos; min 8 porque hay locales cortos.
-//        flightNumber: z.string().regex(/^[A-Z]{2}\d{1,4}$/i).optional()
-//               — IATA: 2 letras + 1-4 dígitos ('AM405'); opcional, fase 2
-//               lo usa para tracking (spec §5.1).
-//      })
-//
-// 3. quoteSchema — body de POST /api/quote:
-//      export const quoteSchema = z.object({
-//        start: z.coerce.date(),
-//        end: z.coerce.date(),
-//        pickupZone: z.string().min(1),
-//      }).refine(d => d.end > d.start, { message: '...' })
-//        .refine(d => d.start >= new Date(Date.now() + 3*60*60*1000), {...})
-//    Segundo refine = lead time del negocio: no se renta con menos de 3 h de
-//    anticipación (misma regla que RangeStep en BookingFlow; el servidor la
-//    revalida porque nunca confía en el cliente, §2.9).
-//
-// 4. bookingInputSchema — body de POST /api/bookings:
-//      export const bookingInputSchema = z.object({
-//        modelSlug: z.string().min(1),
-//        start: z.coerce.date(),
-//        end: z.coerce.date(),
-//        pickupZone: z.string().min(1),
-//        extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).default([]),
-//        customer: customerSchema,
-//        depositType: z.enum(['deposit', 'on_pickup']),
-//      }) + los MISMOS dos .refine de quoteSchema (end > start, start ≥ ahora+3h).
-//    Por qué extras con default([]): una renta sin extras no debe obligar al
-//    cliente a mandar el arreglo vacío explícito.
-//
-// 5. loginSchema — body de POST /api/auth:
-//      export const loginSchema = z.object({
-//        email: z.string().email(),
-//        password: z.string().min(8),
-//      })
-//
-// 6. bookingPatchSchema — body de PATCH /api/admin/bookings/[id]:
-//      export const bookingPatchSchema = z.object({
-//        status: z.enum(['confirmed', 'active', 'completed', 'cancelled']),
-//      })
-//    Transiciones del pipeline (quoted→confirmed→active→completed|cancelled).
-//    'quoted' NO se acepta por PATCH: es un estado efímero interno, no una
-//    transición que el admin dispare a mano.
-//
-// 7. vehicleUpsertSchema — body de POST /api/admin/vehicles:
-//      export const vehicleUpsertSchema = z.object({
-//        slug: z.string().min(1).regex(/^[a-z0-9-]+$/) — va a la URL /flota/[slug].
-//        name: z.string().min(2),
-//        category: z.string().min(1),
-//        transmission: z.enum(['automatic', 'manual']),
-//        seats: z.number().int().min(1).max(15),
-//        luggage: z.number().int().min(0),
-//        dailyRateCents: z.number().int().min(0) — centavos enteros (§2.13).
-//        photos: z.array(z.string()).default([]),
-//        units: z.array(z.object({ plate: z.string().min(4) })).min(1)
-//               — altas de modelo crean sus unidades físicas en la misma
-//               llamada (catálogo en dos niveles, ARCHITECTURE §3).
-//      })
-//
-// 8. manualBookingSchema — body de POST /api/admin/bookings (captura manual y
-//    bloqueos de taller, §2.10):
-//      export const manualBookingSchema = z.object({
-//        vehicleId: z.number().int() — el admin elige la PLACA directa, no el
-//                 modelo (diferencia clave vs bookingInputSchema: el cliente
-//                 cotiza por modelo, el staff asigna por unidad).
-//        start: z.coerce.date(),
-//        end: z.coerce.date(),
-//        pickupZone: z.string().min(1).default('office'),
-//        kind: z.enum(['rental', 'block']),
-//        customer: customerSchema.optional(),
-//        notes: z.string().optional(),
-//      }).refine(d => d.kind === 'block' || d.customer !== undefined)
-//    El refine traduce el CHECK de la BD (001_init.sql paso 4: kind='block'
-//    OR customer_name IS NOT NULL) a la frontera API: los bloqueos NO llevan
-//    cliente; las rentas sí. Fallar aquí ahorra un 500 de Postgres.
-//
-// 9. Tipos inferidos — expórtalos para que islas y endpoints compartan forma:
-//      export type QuoteInput = z.infer<typeof quoteSchema>
-//      export type BookingInput = z.infer<typeof bookingInputSchema>
-//      export type CustomerInput = z.infer<typeof customerSchema>
-//      export type LoginInput = z.infer<typeof loginSchema>
-//      export type BookingPatch = z.infer<typeof bookingPatchSchema>
-//      export type VehicleUpsert = z.infer<typeof vehicleUpsertSchema>
-//      export type ManualBookingInput = z.infer<typeof manualBookingSchema>
-//    BookingFlow importa CustomerInput y QuoteResult (este último se define
-//    en /api/quote como ModelAvailability + PriceBreakdown).
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Expone: los 7 schemas + tipos inferidos. Consume: zod solamente.
-// Callers: endpoints /api/* (safeParse → 400 con el primer issue.message si
-// falla) e islas React (useForm({ resolver: zodResolver(customerSchema) })).
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// - z.date() en vez de z.coerce.date() → todo body JSON falla (JSON no tiene
-//   Date). Coerce SIEMPRE en la frontera HTTP.
-// - Duplicar los refines de fechas con lógica distinta en el wizard → una
-//   sola regla de negocio, un solo lugar: aquí. El cliente solo anticipa UX.
-// - Validar y luego no usar el resultado de safeParse (usar el body crudo)
-//   → el parse devuelve datos NUEVOS ya coercionados (Dates reales); usa
-//   result.data, nunca req.json() crudo después de validar.
-// - meter status 'quoted' o transiciones inversas en bookingPatchSchema →
-//   el pipeline tiene dirección; el enum es la lista cerrada deliberada.
-// ============================================================================
+// Esquemas zod compartidos cliente/servidor (ARCHITECTURE §2.12): UN solo
+// contrato por recurso; alimenta react-hook-form en las islas y safeParse en
+// los endpoints. Archivo PURO: sin imports de Astro ni de db.
+import { z } from 'zod';
+
+// Genera códigos legibles 'RPZ-XXXXXX' con alfabeto sin ambiguos (sin
+// 0/O/1/I/L): se dicta por teléfono. Vive aquí porque lo comparten
+// /api/bookings y /api/admin/bookings; es crypto pura, cero dependencias.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+export function generateBookingCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  const chars = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]);
+  return `RPZ-${chars.join('')}`;
+}
+
+export const customerSchema = z.object({
+  name: z.string().min(2, 'Escribe tu nombre completo'),
+  email: z.string().email('Email no válido'),
+  phone: z
+    .string()
+    .min(8, 'Teléfono demasiado corto')
+    .regex(/^[\d\s+()-]+$/, 'Solo dígitos y caracteres telefónicos'),
+  // IATA: 2 letras + 1-4 dígitos ('AM405'); opcional (fase 2: tracking).
+  flightNumber: z
+    .string()
+    .regex(/^[A-Za-z]{2}\d{1,4}$/, 'Número de vuelo no válido (ej. AM405)')
+    .optional(),
+});
+
+export const quoteSchema = z
+  .object({
+    start: z.coerce.date(),
+    end: z.coerce.date(),
+    pickupZone: z.string().min(1, 'Elige una zona de entrega'),
+    // Opcional: el wizard puede preseleccionar extras al cotizar.
+    extras: z
+      .array(z.object({ id: z.number().int(), qty: z.number().int().min(1) }))
+      .optional(),
+  })
+  .refine((d) => d.end > d.start, { message: 'La devolución debe ser posterior a la entrega' })
+  .refine((d) => d.start.getTime() >= Date.now() + 3 * 60 * 60 * 1000, {
+    message: 'Reserva con al menos 3 horas de anticipación',
+  });
+
+export const bookingInputSchema = z
+  .object({
+    modelSlug: z.string().min(1, 'Falta el auto'),
+    start: z.coerce.date(),
+    end: z.coerce.date(),
+    pickupZone: z.string().min(1, 'Elige una zona de entrega'),
+    // default([]): una renta sin extras no debe obligar a mandar el arreglo.
+    extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).default([]),
+    customer: customerSchema,
+    depositType: z.enum(['deposit', 'on_pickup']),
+    lang: z.enum(['es', 'en']).default('es'),
+  })
+  .refine((d) => d.end > d.start, { message: 'La devolución debe ser posterior a la entrega' })
+  .refine((d) => d.start.getTime() >= Date.now() + 3 * 60 * 60 * 1000, {
+    message: 'Reserva con al menos 3 horas de anticipación',
+  });
+
+export const loginSchema = z.object({
+  email: z.string().email('Email no válido'),
+  password: z.string().min(8, 'Mínimo 8 caracteres'),
+});
+
+export const bookingPatchSchema = z.object({
+  // 'quoted' NO se acepta: estado efímero interno, no transición de admin.
+  status: z.enum(['confirmed', 'active', 'completed', 'cancelled']),
+  notes: z.string().optional(),
+});
+
+export const vehicleUpsertSchema = z.object({
+  // Va a la URL /flota/[slug].
+  slug: z.string().min(1, 'Requerido').regex(/^[a-z0-9-]+$/, 'Solo minúsculas, dígitos y guiones'),
+  name: z.string().min(2, 'Nombre demasiado corto'),
+  category: z.string().min(1, 'Elige una categoría'),
+  transmission: z.enum(['automatic', 'manual']),
+  seats: z.number().int().min(1).max(15),
+  luggage: z.number().int().min(0),
+  // Centavos enteros (§2.13).
+  dailyRateCents: z.number().int().min(0),
+  photos: z.array(z.string()).default([]),
+  active: z.boolean().optional(),
+  // Alta de modelo crea sus unidades físicas en la misma llamada.
+  units: z.array(z.object({ plate: z.string().min(4, 'Placa demasiado corta') })).min(1).optional(),
+  // Operaciones de unidad del PATCH (los IDs vienen del FleetManager):
+  addUnits: z.array(z.object({ plate: z.string().min(4, 'Placa demasiado corta') })).optional(),
+  setUnitStatus: z
+    .object({
+      unitId: z.number().int(),
+      status: z.enum(['active', 'maintenance', 'retired']),
+    })
+    .optional(),
+});
+
+// Captura manual y bloqueos de taller (§2.10). El admin asigna por UNIDAD
+// (placa); el modelo solo entra como referencia de precio para kind='rental'.
+export const manualBookingSchema = z
+  .object({
+    kind: z.enum(['rental', 'block']),
+    vehicleId: z.number().int().optional(),
+    modelSlug: z.string().optional(),
+    start: z.coerce.date(),
+    end: z.coerce.date(),
+    pickupZone: z.string().min(1).default('office'),
+    extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).default([]),
+    customer: customerSchema.optional(),
+    depositType: z.enum(['deposit', 'on_pickup']).default('on_pickup'),
+    totalCentsOverride: z.number().int().min(0).optional(),
+    notes: z.string().optional(),
+  })
+  .refine((d) => d.end > d.start, { message: 'La devolución debe ser posterior a la entrega' })
+  // Traduce a la frontera API el CHECK de la BD: los bloqueos NO llevan
+  // cliente (y exigen unidad concreta); las rentas sí llevan cliente.
+  .refine((d) => d.kind === 'block' || d.customer !== undefined, {
+    message: 'Una renta necesita los datos del cliente',
+  })
+  .refine((d) => d.kind === 'rental' || d.vehicleId !== undefined, {
+    message: 'Un bloqueo es de una placa concreta',
+  })
+  .refine((d) => d.kind === 'block' || d.modelSlug !== undefined, {
+    message: 'Falta el modelo para calcular el precio',
+  });
+
+export type QuoteInput = z.infer<typeof quoteSchema>;
+export type BookingInput = z.infer<typeof bookingInputSchema>;
+export type CustomerInput = z.infer<typeof customerSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type BookingPatch = z.infer<typeof bookingPatchSchema>;
+export type VehicleUpsert = z.infer<typeof vehicleUpsertSchema>;
+export type ManualBookingInput = z.infer<typeof manualBookingSchema>;

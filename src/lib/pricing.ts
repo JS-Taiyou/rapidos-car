@@ -1,132 +1,223 @@
-// ============================================================================
-// LIB: pricing — motor de precios (la otra mitad del showcase, spec §9)
-// ============================================================================
-// Propósito: dado un modelo disponible, un rango [start, end), una zona y los
-// extras elegidos, producir el desglose COMPLETO del precio (PriceBreakdown).
-// Lo usan /api/quote (mostrar) y /api/bookings (recalcular como verdad dentro
-// de la transacción — ARCHITECTURE §2.9: el servidor decide, nunca el cliente).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * FUNCIÓN PURA respecto a la BD: computeQuote NO hace queries. Recibe
-//   seasons, extrasCatalog y settings YA CARGADOS por el caller vía `ctx`.
-//   Por qué: /api/quote cotiza TODOS los modelos a la vez; si cada llamada a
-//   computeQuote consultara la BD serían N+1 queries, y el free tier cuenta
-//   cada operación (spec §2). El endpoint carga las 3 tablas UNA vez y las
-//   inyecta. Además, pura = testeable con `vitest` sin levantar Postgres.
-// * Dinero en CENTAVOS enteros siempre (ARCHITECTURE §2.13): nada de floats
-//   en el desglose. Los multiplicadores numeric de temporada se aplican y se
-//   redondean POR DÍA con Math.round; el IVA y el depósito se calculan sobre
-//   enteros y se redondean SOLO AL FINAL con Math.round. Redondear a la mitad
-//   del cálculo acumula errores de centavos entre el preview y el total.
-// * Precio POR DÍA con suma diaria, no multiplicador único para toda la
-//   renta: una renta que cruza de temporada baja a alta debe pagar cada día
-//   según la temporada que lo contiene. Es lo justo para el cliente y para
-//   el negocio (spec §4 detalle de precios), y el desglose days[] lo hace
-//   transparente en la UI ("este día cuesta más por temporada alta").
-// * SNAPSHOT de extras: el desglose usa el nombre y precio del catálogo EN
-//   ESTE MOMENTO, y eso es lo que se persiste en bookings.extras (jsonb).
-//   Si mañana sube el precio de la silla de bebé, las reservaciones viejas
-//   NO cambian de total (ver 001_init.sql paso 3).
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Importar tipos: ModelAvailability desde './availability'; declara aquí
-//    (o impórtalos de './validation' si ahí viven) los tipos de contexto:
-//      interface Season { name: string; period: [string, string]; multiplier: number }
-//      interface Extra { id: number; name: string; priceCents: number; per: 'day' | 'rental' }
-//      interface Settings { ivaRate: number; deliveryZones: Array<{ zone: string; feeCents: number }>;
-//                           longRentalDiscounts: Array<{ minDays: number; pct: number }> }
-//    (El endpoint parsea los jsonb de settings a esta forma tipada ANTES de
-//    llamar a computeQuote; este archivo no lee jsonb crudo.)
-//
-// 2. Declarar el tipo de salida y exportarlo:
-//      interface PriceBreakdown {
-//        days: Array<{ date: string; seasonName: string | null; multiplier: number; cents: number }>
-//        daysCount: number
-//        subtotalCents: number
-//        discountPct: number
-//        extrasCents: number
-//        deliveryFeeCents: number
-//        taxCents: number
-//        totalCents: number
-//        depositCents: number
-//      }
-//
-// 3. Declarar la firma exacta de la función exportada:
-//      export function computeQuote(
-//        model: ModelAvailability,
-//        start: Date,
-//        end: Date,
-//        pickupZone: string,
-//        selectedExtras: Array<{ id: number; qty: number }>,
-//        ctx: { seasons: Season[]; extrasCatalog: Extra[]; settings: Settings }
-//      ): PriceBreakdown
-//    Sin async: no toca BD ni red; pura y síncrona.
-//
-// 4. Días: (a) daysCount = Math.ceil((end.getTime() - start.getTime()) /
-//    86_400_000) — bloques de 24 h con ceil (26 h = 2 días, estándar de
-//    renta); (b) para i = 0..daysCount-1, dayDate = start + i*24h normalizado
-//    a fecha calendario YYYY-MM-DD en America/Merida (Intl.DateTimeFormat
-//    'en-CA' con timeZone: 'America/Merida' te da el formato ISO barato).
-//
-// 5. Precio por día: para cada día busca en ctx.seasons cuál contiene esa
-//    fecha (en SQL sería `period @> fecha`; aquí, como los rangos ya vienen
-//    cargados, compara strings YYYY-MM-DD contra [from, to) del daterange —
-//    o haz la comparación con Date; elige y documenta). cents del día =
-//    Math.round(model.dailyRateCents * multiplier), con multiplier = 1 si
-//    ninguna temporada cubre ese día (seasonName = null). Acumula
-//    subtotalCents = suma de los cents diarios.
-//
-// 6. Descuento por renta larga: recorre ctx.settings.longRentalDiscounts
-//    (semilla: ≥7 días −10%, ≥30 −20%) y toma el de mayor minDays que cumpla
-//    daysCount >= minDays. discountPct = ese pct; subtotalCents =
-//    Math.round(subtotalCents * (1 - pct/100)). Se aplica SOLO al subtotal
-//    de días, no a extras ni entrega (el descuento es por días de renta).
-//
-// 7. Extras: para cada {id, qty} de selectedExtras, busca el extra en
-//    ctx.extrasCatalog (ignora ids que no existan o estén inactivos — el
-//    endpoint valida antes, pero defensa en profundidad). Si per === 'day':
-//    cents = priceCents * qty * daysCount; si per === 'rental': cents =
-//    priceCents * qty. extrasCents = suma. Guarda también el arreglo de
-//    snapshot [{name, priceCents, per, qty}] — /api/bookings lo persiste
-//    en bookings.extras tal cual.
-//
-// 8. Entrega: deliveryFeeCents = feeCents de ctx.settings.deliveryZones cuyo
-//    zone === pickupZone; 0 si la zona no existe (el airport es gratis en la
-//    semilla). La validación de que la zona existe es de zod/endpoint.
-//
-// 9. IVA: taxCents = Math.round((subtotalCents + extrasCents +
-//    deliveryFeeCents) * ctx.settings.ivaRate). IVA AL FINAL sobre la base
-//    completa, no por componente (así cuadra con la facturación mexicana).
-//
-// 10. Totales: totalCents = subtotalCents + extrasCents + deliveryFeeCents +
-//     taxCents. depositCents = Math.round(totalCents * 0.20) — anticipo del
-//     20% cuando depositType = 'deposit' (spec §3.3). Devuelve el
-//     PriceBreakdown completo.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Expone: computeQuote(...) y los tipos PriceBreakdown, Season, Extra,
-// Settings. Consume: tipos de availability.ts; NADA de db.ts (pura).
-// Callers: /api/quote (por cada modelo disponible) y /api/bookings
-// (recalculo autoritativo dentro de la transacción; lo que responde el
-// cliente es este total, no el que mandó el wizard).
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// - Hacer queries aquí "para simplificar el endpoint" → mata la pureza y
-//   crea N+1; el caller carga ctx una sola vez.
-// - Floats intermedios (0.16 * total sin redondear) → descuadres de centavos
-//   entre cotización y cobro; Math.round en cada paso monetario, solo ahí.
-// - Multiplicador único de temporada para toda la renta → cobras de más o de
-//   menos en rentas que cruzan temporada; la suma diaria es la regla.
-// - Comparar fechas con toISOString() (UTC) → un día a las 18:00 en Mérida
-//   cae en otro día calendario; normaliza con timeZone 'America/Merida'.
-// - Aplicar el descuento de renta larga sobre extras/entrega → la regla es
-//   solo sobre el subtotal de días.
-// ============================================================================
+// Motor de precios (la otra mitad del showcase, spec §9). computeQuote es
+// FUNCIÓN PURA: no toca BD; recibe seasons/extrasCatalog/settings ya
+// cargados por el caller (evita N+1 en /api/quote, que cotiza todos los
+// modelos a la vez). Dinero en centavos enteros SIEMPRE (§2.13).
+import type { Sql } from './db';
+import type { ModelAvailability } from './availability';
+
+export interface Season {
+  name: string;
+  /** [from, to) en YYYY-MM-DD, límites del daterange */
+  period: [string, string];
+  multiplier: number;
+}
+
+export interface Extra {
+  id: number;
+  name: string;
+  priceCents: number;
+  per: 'day' | 'rental';
+}
+
+export interface Settings {
+  ivaRate: number;
+  deliveryZones: Array<{ zone: string; feeCents: number }>;
+  longRentalDiscounts: Array<{ minDays: number; pct: number }>;
+  turnaroundBufferMinutes: number;
+  whatsappStaffNumber: string;
+}
+
+export interface PricingContext {
+  seasons: Season[];
+  extrasCatalog: Extra[];
+  settings: Settings;
+}
+
+export interface PriceBreakdown {
+  days: Array<{ date: string; seasonName: string | null; multiplier: number; cents: number }>;
+  daysCount: number;
+  subtotalCents: number;
+  discountPct: number;
+  extrasCents: number;
+  deliveryFeeCents: number;
+  taxCents: number;
+  totalCents: number;
+  depositCents: number;
+}
+
+// type alias (no interface): los alias reciben firma de índice implícita y
+// así postgres.js los acepta como JSONValue en sql.json().
+export type ExtraSnapshot = {
+  name: string;
+  price_cents: number;
+  per: 'day' | 'rental';
+  qty: number;
+};
+
+export type QuoteResult = ModelAvailability & { price: PriceBreakdown };
+
+// "YYYY-MM-DD" del día calendario en la zona del negocio (CST fijo, sin DST).
+function meridaDateKey(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Merida',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+export function computeQuote(
+  model: ModelAvailability,
+  start: Date,
+  end: Date,
+  pickupZone: string,
+  selectedExtras: Array<{ id: number; qty: number }>,
+  ctx: PricingContext,
+): PriceBreakdown {
+  // Días = bloques de 24 h con ceil (26 h = 2 días, estándar de renta).
+  const ms = end.getTime() - start.getTime();
+  const daysCount = Math.max(1, Math.ceil(ms / 86_400_000));
+
+  // Precio POR DÍA con suma diaria: una renta que cruza de temporada baja a
+  // alta paga cada día según la temporada que lo contiene.
+  const days: PriceBreakdown['days'] = [];
+  let subtotalCents = 0;
+  for (let i = 0; i < daysCount; i++) {
+    const dayDate = new Date(start.getTime() + i * 86_400_000);
+    const key = meridaDateKey(dayDate);
+    const season = ctx.seasons.find(
+      (s) => key >= s.period[0] && key < s.period[1],
+    );
+    const multiplier = season ? season.multiplier : 1;
+    const cents = Math.round(model.dailyRateCents * multiplier);
+    days.push({
+      date: key,
+      seasonName: season?.name ?? null,
+      multiplier,
+      cents,
+    });
+    subtotalCents += cents;
+  }
+
+  // Descuento por renta larga: SOLO sobre el subtotal de días.
+  let discountPct = 0;
+  for (const rule of ctx.settings.longRentalDiscounts) {
+    if (daysCount >= rule.minDays) discountPct = Math.max(discountPct, rule.pct);
+  }
+  if (discountPct > 0) {
+    subtotalCents = Math.round(subtotalCents * (1 - discountPct / 100));
+  }
+
+  // Extras: precio del catálogo EN ESTE MOMENTO (el snapshot se persiste en
+  // bookings.extras). ids desconocidos se ignoran (defensa en profundidad).
+  let extrasCents = 0;
+  for (const sel of selectedExtras) {
+    const extra = ctx.extrasCatalog.find((e) => e.id === sel.id);
+    if (!extra) continue;
+    extrasCents +=
+      extra.per === 'day' ? extra.priceCents * sel.qty * daysCount : extra.priceCents * sel.qty;
+  }
+
+  const deliveryFeeCents =
+    ctx.settings.deliveryZones.find((z) => z.zone === pickupZone)?.feeCents ?? 0;
+
+  // IVA AL FINAL sobre la base completa (cuadra con facturación mexicana).
+  const taxCents = Math.round((subtotalCents + extrasCents + deliveryFeeCents) * ctx.settings.ivaRate);
+  const totalCents = subtotalCents + extrasCents + deliveryFeeCents + taxCents;
+  const depositCents = Math.round(totalCents * 0.2);
+
+  return {
+    days,
+    daysCount,
+    subtotalCents,
+    discountPct,
+    extrasCents,
+    deliveryFeeCents,
+    taxCents,
+    totalCents,
+    depositCents,
+  };
+}
+
+// Snapshot de extras para persistir en bookings.extras: nombre y precio del
+// catálogo en este momento, no lo que mandó el cliente.
+export function snapshotExtras(
+  selectedExtras: Array<{ id: number; qty: number }>,
+  ctx: PricingContext,
+): ExtraSnapshot[] {
+  const snapshot: ExtraSnapshot[] = [];
+  for (const sel of selectedExtras) {
+    const extra = ctx.extrasCatalog.find((e) => e.id === sel.id);
+    if (!extra) continue;
+    snapshot.push({ name: extra.name, price_cents: extra.priceCents, per: extra.per, qty: sel.qty });
+  }
+  return snapshot;
+}
+
+// daterange de Postgres llega como texto '[2025-12-15,2026-01-06)'.
+function parseDaterange(raw: string): [string, string] {
+  const body = raw.slice(1, -1);
+  const [from, to] = body.split(',');
+  return [from.trim(), (to ?? '').trim()];
+}
+
+// jsonb puede llegar doble-codificado como string (registro histórico):
+// parse defensivo antes de usar.
+function parseMaybeJson<T>(value: unknown): T[] {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T[];
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+// Carga el contexto de precios (seasons/extras/settings) UNA sola vez para
+// inyectárselo a computeQuote. Extraída a este módulo (lo sanciona la guía
+// de /api/bookings: "si crece, extrae loadPricingContext(sql) a pricing.ts")
+// para no duplicar las ~30 líneas entre /api/quote y /api/bookings.
+export async function loadPricingContext(sql: Sql): Promise<PricingContext> {
+  const [seasonRows, extraRows, settingRows] = await Promise.all([
+    sql`SELECT id, name, period, multiplier FROM seasons`,
+    sql`SELECT id, name, price_cents, per FROM extras WHERE active = true`,
+    sql`SELECT key, value FROM settings`,
+  ]);
+
+  const settingsMap = Object.fromEntries(
+    settingRows.map((r) => [r.key, r.value]),
+  ) as Record<string, unknown>;
+
+  const rawZones = parseMaybeJson<{ zone: string; fee_cents: number }>(
+    settingsMap.delivery_zones ?? [],
+  );
+  const rawDiscounts = parseMaybeJson<{ min_days: number; pct: number }>(
+    settingsMap.long_rental_discounts ?? [],
+  );
+
+  return {
+    seasons: (seasonRows as unknown as Array<{ name: string; period: string; multiplier: string | number }>).map(
+      (r) => ({
+        name: r.name,
+        period: parseDaterange(r.period),
+        multiplier: Number(r.multiplier),
+      }),
+    ),
+    extrasCatalog: (
+      extraRows as unknown as Array<{ id: number; name: string; price_cents: number; per: 'day' | 'rental' }>
+    ).map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      priceCents: Number(r.price_cents),
+      per: r.per,
+    })),
+    settings: {
+      ivaRate: Number(settingsMap.iva_rate ?? 0),
+      deliveryZones: rawZones.map((z) => ({ zone: z.zone, feeCents: Number(z.fee_cents) })),
+      longRentalDiscounts: rawDiscounts.map((d) => ({ minDays: Number(d.min_days), pct: Number(d.pct) })),
+      turnaroundBufferMinutes: Number(settingsMap.turnaround_buffer_minutes ?? 0),
+      whatsappStaffNumber: String(settingsMap.whatsapp_staff_number ?? ''),
+    },
+  };
+}

@@ -1,76 +1,46 @@
 ---
-// ============================================================================
-// PÁGINA: Reservar ES (/reservar) — estática + isla BookingFlow
-// ============================================================================
-// PROPÓSITO: hospedar el motor de reservación. La página es un cascarón
-// estático; TODA la interacción vive en la isla BookingFlow (su guía está
-// en src/components/react/booking/BookingFlow.tsx).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * Estática + client:load: el HTML (título, SEO, fallback) es inmutable y
-//   se sirve gratis; la isla se hidrata inmediatamente porque ES el
-//   contenido de la página — mismo criterio que QuoteWidget en la home
-//   (ARCHITECTURE §2.1, §2.2). client:idle/client:visible retrasarían el
-//   embudo principal.
-// * <noscript> CRÍTICO con link directo de WhatsApp: el negocio es
-//   WhatsApp-nativo (spec §3.6) y el funnel NO puede morir si falla el JS
-//   (4G inestable, extensiones, WebViews viejos). Sin JS, el usuario cae en
-//   wa.me con mensaje pre-llenado y el staff cierra por chat — venta
-//   rescatada. El href se arma en el frontmatter con buildWhatsAppUrl (es
-//   puro, funciona en servidor).
-// * Wrapper con min-height alrededor de la isla: BookingFlow renderiza en
-//   cliente; sin reservar altura, el contenido salta al hidratar (CLS,
-//   spec §6). Un min-h razonable (p.ej. 32rem) + el skeleton interno de la
-//   isla cubre el salto.
-// * Query params de entrada: QuoteWidget y /flota/[slug] llegan con
-//   ?start&end&zone (&model opcional). BookingFlow los lee SOLO — esta
-//   página NO los procesa: la URL es el estado compartible (ver la guía de
-//   BookingFlow) y duplicar el parsing crearía dos fuentes de verdad.
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Imports: BaseLayout ('../layouts/BaseLayout.astro'), BookingFlow de
-//    '../components/react/booking/BookingFlow', useTranslations de
-//    '../i18n/utils', buildWhatsAppUrl de '../lib/whatsapp'.
-// 2. Frontmatter: const t = useTranslations('es'); const whatsappFallback =
-//    buildWhatsAppUrl(t('booking.noscriptMessage')) — mensaje genérico
-//    ("Hola, quiero reservar un auto"); fechas y auto se piden por chat.
-// 3. SEO: title t('booking.pageTitle') y description t('booking.pageDesc')
-//    — redactar en ui.ts algo como "Reserva tu auto en Mérida: precio final
-//    con seguro incluido y entrega en el aeropuerto MID. Cotiza en 1
-//    minuto." alternateUrl="/en/book".
-// 4. Template:
-//    a. Encabezado estático: <h1> + resumen de los pasos del wizard
-//       (t('booking.steps.*')) — contenido indexable aunque la isla tarde.
-//    b. <div class="min-h-[32rem]"> envolviendo
-//       <BookingFlow client:load lang="es" />.
-//    c. <noscript> con aviso + <a href={whatsappFallback}> como botón
-//       WhatsApp. Coherencia: si /api/quote falla, la isla muestra este
-//       mismo link como fallback de error (ver guía de BookingFlow).
-//    d. Notas de confianza bajo la isla: seguro incluido, política de
-//       cancelación, contacto visible (t('booking.trust.*')).
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Consume: BaseLayout, BookingFlow (props { lang }), i18n, whatsapp.ts.
-// No expone nada. Espejo EN: /en/book con lang="en" y
-// alternateUrl="/reservar".
-//
-// ERRORES COMUNES
-// - Olvidar el <noscript> → funnel muerto sin JS (spec §3.6: inaceptable).
-// - Sin min-height → CLS visible al hidratar la isla.
-// - client:visible → el usuario ve un cascarón vacío hasta hacer scroll.
-// - Procesar query params en el frontmatter "para pasarlos bonitos" → la
-//   isla los lee sola; dos parsers = dos fuentes de verdad.
-// ============================================================================
+// Reservar ES (/reservar) — cascarón estático + isla BookingFlow
+// (client:load: la isla ES la página). <noscript> con WhatsApp: el funnel
+// NO puede morir si falla el JS (spec §3.6). La página NO procesa query
+// params: la isla los lee sola (una sola fuente de verdad).
+import BaseLayout from '../layouts/BaseLayout.astro';
+import BookingFlow from '../components/react/booking/BookingFlow';
+import { useTranslations } from '../i18n/utils';
+import { buildWhatsAppUrl } from '../lib/whatsapp';
+import { DELIVERY_ZONES } from '../lib/zones';
+
+const t = useTranslations('es');
+const whatsappFallback = buildWhatsAppUrl(t('booking.noscriptMessage'));
 ---
 
-<!-- =========================================================================
-     TEMPLATE: BaseLayout > h1 + resumen de pasos > div con min-h que envuelve
-     BookingFlow client:load + <noscript> con botón WhatsApp + notas de
-     confianza.
-     ========================================================================== -->
+<BaseLayout lang="es" title={t('booking.pageTitle')} description={t('booking.pageDesc')} alternateUrl="/en/book">
+  <section class="mx-auto max-w-4xl px-4 py-10">
+    <h1 class="text-3xl font-bold tracking-tight">{t('booking.pageTitle')}</h1>
+    <p class="mt-2 text-sm text-muted-foreground">{t('booking.stepsSummary')}</p>
+
+    <!-- min-height: sin él, el contenido salta al hidratar la isla (CLS). -->
+    <div class="mt-8 min-h-[32rem]">
+      <BookingFlow client:load lang="es" zones={DELIVERY_ZONES} />
+    </div>
+
+    <noscript>
+      <div class="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-5 text-center">
+        <p class="font-medium text-amber-900">{t('booking.noscriptTitle')}</p>
+        <a
+          href={whatsappFallback}
+          target="_blank"
+          rel="noopener"
+          class="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#25D366] px-5 py-2.5 font-semibold text-white"
+        >
+          {t('booking.noscriptCta')}
+        </a>
+      </div>
+    </noscript>
+
+    <ul class="mt-8 grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
+      <li>✓ {t('booking.trust.insurance')}</li>
+      <li>✓ {t('booking.trust.cancelation')}</li>
+      <li>✓ {t('booking.trust.support')}</li>
+    </ul>
+  </section>
+</BaseLayout>

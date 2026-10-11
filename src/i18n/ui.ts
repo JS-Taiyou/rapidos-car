@@ -1,125 +1,549 @@
-// ============================================================================
-// I18N: ui — diccionario bilingüe ES/EN (ARCHITECTURE §2.6)
-// ============================================================================
-// Propósito: TODOS los textos de UI del sitio, en ambos idiomas, en un solo
-// objeto. Las páginas y componentes nunca hardcodean strings: llaman
-// t('home.hero.title') con useTranslations(lang) de './utils'.
+// Diccionario bilingüe ES/EN (ARCHITECTURE §2.6). Textos escritos A MANO
+// (spec §1: traducción humana). El contenido LARGO (respuestas de FAQ
+// cortas de 2-4 líneas sí viven aquí — ver guía de /faq) y párrafos van en
+// las páginas; aquí solo etiquetas, títulos, CTAs y mensajes.
 //
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * Un objeto TS con `as const`, no dos JSON sueltos: `as const` da
-//   autocompletado literal de las claves y, sobre todo, ERROR DE COMPILACIÓN
-//   si falta una llave en un idioma (TS compara la forma de ui.es contra
-//   ui.en — ver paso 3). Un JSON suelto falla en runtime o nunca.
-// * Objeto anidado por sección (nav.*, home.*, booking.*) con lookup por
-//   puntos en utils.ts: plano "home.hero.title" como string-clave también
-//   funcionaría, pero anidar te deja ver la cobertura por sección de un
-//   vistazo y borrar secciones enteras sin grep.
-// * Textos escritos A MANO en ambos idiomas (spec §1: traducción humana, no
-//   automática). Este archivo es donde se nota: tono mexicano cálido en ES,
-//   EN directo y simple, sin anglicismos raros ni Spanglish.
-// * El contenido LARGO (párrafos de FAQ, políticas, descripciones de
-//   ubicaciones) NO va aquí: vive en el template de cada página (el espejo
-//   EN es otro archivo .astro). ui.ts es solo para etiquetas, títulos, CTAs
-//   y mensajes cortos — lo que se repite entre componentes.
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Declarar la forma con las llaves EXACTAS que se listan abajo. Cada clave
-//    se describe aquí; tú escribes el texto final. Convención de redacción:
-//    ≤60 chars en títulos H1/hero (SEO y wrap en mobile), verbos en
-//    imperativo para CTAs ("Reserva ahora" / "Book now").
-//
-// 2. MAPA COMPLETO DE CLAVES (ambos idiomas, mismas llaves):
-//
-//    nav.* — navegación del Header (7 entradas, espejo de las rutas §1):
-//      nav.home: 'Inicio' / 'Home'
-//      nav.fleet / nav.locations / nav.faq / nav.contact: etiqueta corta de
-//        cada sección; nav.book: el CTA destacado ('Reservar' / 'Book').
-//
-//    home.hero.title: promesa de valor con Mérida y beneficio concreto
-//      (ej. "Tu auto en Mérida, sin sorpresas"), ≤60 chars.
-//    home.hero.subtitle: seguro incluido + entrega en aeropuerto/hotel,
-//      ≤120 chars.
-//    home.trust.years: años en el negocio (número editable en el texto).
-//    home.trust.fleet: flota reciente / bien mantenida.
-//    home.trust.insurance: seguro de cobertura amplia incluido (diferenciador
-//      clave vs. arrendadoras grandes, spec §3.1).
-//    home.trust.whatsapp: atención 24/7 por WhatsApp.
-//    home.fleetPreview.title / home.fleetPreview.cta: título de sección y
-//      link "ver toda la flota".
-//    home.reviews.title: título de reseñas (el contenido es estático en la
-//      página; aquí solo el encabezado).
-//
-//    quote.* — el widget del hero y el paso 1 del wizard comparten etiquetas:
-//      quote.pickupZone: label del select de zona de entrega.
-//      quote.pickupDate / quote.returnDate: labels de los campos de fecha.
-//      quote.submit: botón ('Cotizar' / 'Get a quote').
-//
-//    fleet.* — /flota y CarCard:
-//      fleet.title: H1 de la página.
-//      fleet.from: el "desde" de la tarifa ('Desde' / 'From').
-//      fleet.perDay: '/día' / '/day' (sufijo del precio).
-//      fleet.specs.seats / fleet.specs.luggage / fleet.specs.transmission:
-//        labels de specs; transmission usa valores 'automático'/'estándar'
-//        según el dato, el label aquí es solo el nombre del campo.
-//      fleet.cta: botón de la card ('Ver detalles' / 'Details' → /flota/[slug]).
-//
-//    booking.steps.* — barra de progreso del wizard (6 pasos, mismos que
-//      BookingFlow): range ('Fechas'), car ('Auto'), extras ('Extras'),
-//      customer ('Tus datos'), payment ('Pago'), done ('Listo'). Cortas:
-//      se ven en mobile.
-//    booking.conflict: mensaje del 409 ('Ese auto acaba de reservarse, te
-//      mostramos otras opciones' / equivalente EN). Lo usa el toast de
-//      BookingFlow al recibir CONFLICT.
-//    booking.error: error genérico de red/servidor con invitación a reintentar.
-//    booking.whatsappCta: botón final ('Confirmar por WhatsApp').
-//    booking.codeLabel: etiqueta del código RPZ-XXXXXX ('Tu código de
-//      reservación' / 'Your booking code').
-//
-//    faq.title: H1. NOTA: las preguntas/respuestas NO van aquí — son
-//      contenido largo de las páginas /faq y /en/faq (ver DECISIONES).
-//
-//    contact.title, contact.phone, contact.whatsapp, contact.hours: etiquetas
-//      de la página de contacto (los valores reales — número, horario — son
-//      datos del negocio y viven en la página, no en el diccionario).
-//
-//    footer.rights: '© 2025 Rapidoz Rental. Todos los derechos
-//      reservados.' / EN equivalente (año: usa new Date().getFullYear() en
-//      el componente, no lo hardcodees).
-//    footer.madeIn: 'Hecho en Mérida, Yucatán' / 'Made in Mérida, Yucatán'.
-//
-// 3. Escribir el objeto:
-//      export const ui = {
-//        es: { nav: { home: 'Inicio', ... }, home: { hero: { ... }, ... }, ... },
-//        en: { /* mismas llaves exactas */ },
-//      } as const
-//    Truco para que TS garantice paridad: declara primero `es`, luego anota
-//    `en: typeof ui.es`... no — ui no existe aún; la forma práctica es
-//    definir `const es = { ... } as const` y luego `const en: {...}` con el
-//    tipo Record espejo, o simplemente dejar que TS compare al asignar
-//    `en: typeof es`. Elige la variante que te dé error de compilación si
-//    falta una clave; ese es el requisito, no la sintaxis exacta.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Expone: `ui` (árbol ES/EN completo). Consume: nada. Lo usa
-// useTranslations() de './utils', que es el único punto de acceso — los
-// componentes no importan ui directamente (así el fallback a ES vive en un
-// solo lugar).
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// - Agregar una clave solo en es/ → en utils.ts el fallback la resuelve, pero
-//   es deuda silenciosa; con `as const` + el tipado espejo, TS te grita.
-// - Meter aquí párrafos de FAQ o políticas → el diccionario se vuelve
-//   inmanejable; contenido largo va en las páginas.
-// - Interpolación tipo template ('Hola {name}') sin convención → si algún
-//   texto necesita datos, usa funciones en utils.ts, no claves con huecos.
-// - Traducir los valores de enum (transmission) aquí: el label es de UI; el
-//   VALOR ('automatic') viaja sin traducir entre API y BD.
-// ============================================================================
+// CONVENIOS:
+//  * Dinero: SIEMPRE Intl.NumberFormat('es-MX', { currency: 'MXN' }) aunque
+//    lang sea 'en' — el negocio cobra en pesos (decisión única, documentada
+//    aquí una sola vez).
+//  * Datos de negocio sin confirmar (montos de depósito, edades): se
+//    redactan sin cifras inventadas; el dueño las confirma antes de publicar.
+const es = {
+  nav: {
+    home: 'Inicio',
+    fleet: 'Flota',
+    locations: 'Ubicaciones',
+    faq: 'Preguntas',
+    contact: 'Contacto',
+    book: 'Reservar',
+    whatsapp: 'Hola, quiero cotizar una renta de auto',
+  },
+  home: {
+    hero: {
+      title: 'Tu auto en Mérida, sin sorpresas',
+      subtitle:
+        'Renta con seguro incluido y entrega en el aeropuerto o tu hotel. Cotiza en 1 minuto, confirma por WhatsApp.',
+    },
+    trust: {
+      years: 'Años rentando en Yucatán',
+      fleet: 'Flota reciente y bien mantenida',
+      insurance: 'Seguro de cobertura amplia incluido',
+      whatsapp: 'Atención 24/7 por WhatsApp',
+    },
+    fleetPreview: {
+      title: 'Nuestra flota',
+      cta: 'Ver toda la flota',
+    },
+    reviews: {
+      title: 'Lo que dicen nuestros clientes',
+    },
+  },
+  quote: {
+    pickupZone: 'Zona de entrega',
+    pickupDate: 'Entrega',
+    returnDate: 'Devolución',
+    submit: 'Cotizar',
+    timezoneNote: 'Horario local de Mérida (CST)',
+    zones: {
+      airport_mid: 'Aeropuerto MID (gratis)',
+      centro: 'Centro de Mérida',
+      norte: 'Zona norte',
+      hotel_zone: 'Zona hotelera',
+    },
+    error: {
+      required: 'Completa los tres campos para cotizar',
+      endBeforeStart: 'La devolución debe ser posterior a la entrega',
+      tooSoon: 'Reserva con al menos 3 horas de anticipación',
+    },
+  },
+  fleet: {
+    title: 'Flota',
+    subtitle: 'Todos los autos con seguro incluido y tarifa clara por día.',
+    description:
+      'Catálogo de autos en renta en Mérida: compactos, SUV y vans con seguro incluido y entrega en aeropuerto u hotel.',
+    from: 'Desde',
+    perDay: '/día',
+    all: 'Todos',
+    cta: 'Ver detalles',
+    empty: 'Por el momento no hay autos publicados en el catálogo.',
+    emptyCta: 'Escríbenos por WhatsApp y te cotizamos hoy mismo',
+    pricesNote:
+      'Tarifas base por día. El precio final se calcula al cotizar tus fechas (temporadas y descuentos por renta larga aplican).',
+    specs: {
+      seats: 'asientos',
+      luggage: 'maletas',
+      transmission: 'transmisión',
+    },
+    transmission: {
+      automatic: 'Automática',
+      manual: 'Estándar',
+    },
+    category: {
+      small: 'Chico',
+      compact: 'Compacto',
+      medium: 'Mediano',
+      large: 'Grande',
+      suv: 'SUV',
+      van: 'Van',
+      cargo: 'Carga',
+    },
+    detail: {
+      bookCta: 'Reservar este auto',
+      whatsapp: 'Hola, me interesa el',
+      checkDates: 'Cotiza tus fechas para ver disponibilidad y precio final.',
+      priceNote: 'Precio base por día; el total depende de tus fechas y temporada.',
+      notFound: 'Este auto no está disponible o ya no existe.',
+      notFoundCta: 'Ver el catálogo completo',
+      backToFleet: '← Volver a la flota',
+    },
+  },
+  booking: {
+    pageTitle: 'Reserva tu auto en Mérida',
+    pageDesc:
+      'Cotiza y reserva en 1 minuto: precio final con seguro incluido y entrega en el aeropuerto MID o tu hotel. Confirmación por WhatsApp.',
+    stepsSummary: 'Elige fechas → auto → extras → tus datos → pago → listo',
+    noscriptTitle: 'El motor de reservación necesita JavaScript.',
+    noscriptMessage: 'Hola, quiero reservar un auto',
+    noscriptCta: 'Reserva por WhatsApp',
+    trust: {
+      insurance: 'Seguro de cobertura amplia incluido en todas las tarifas.',
+      cancelation: 'Cancelación sin costo con anticipación razonable.',
+      support: '¿Dudas? Escríbenos por WhatsApp en cualquier paso.',
+    },
+    steps: {
+      range: 'Fechas',
+      car: 'Auto',
+      extras: 'Extras',
+      customer: 'Tus datos',
+      payment: 'Pago',
+      done: 'Listo',
+    },
+    back: 'Volver',
+    conflict: 'Ese auto acaba de reservarse. Te mostramos otras opciones.',
+    error: 'No pudimos completar la reservación. Intenta de nuevo.',
+    whatsappCta: 'Confirmar por WhatsApp',
+    codeLabel: 'Tu código de reservación',
+    range: {
+      title: '¿Cuándo lo necesitas?',
+      zone: 'Zona de entrega',
+      start: 'Entrega',
+      end: 'Devolución',
+      submit: 'Buscar autos disponibles',
+      tooSoon: 'Reserva con al menos 3 horas de anticipación',
+      endBeforeStart: 'La devolución debe ser posterior a la entrega',
+      tooLong: 'El rango máximo es de 60 días',
+      pickTime: 'Hora de entrega',
+      returnTime: 'Hora de devolución',
+      pickDate: 'Fecha de entrega',
+      returnDate: 'Fecha de devolución',
+    },
+    car: {
+      title: 'Autos disponibles',
+      empty: 'No hay unidades disponibles para esas fechas. Prueba con otras fechas o escríbenos por WhatsApp.',
+      select: 'Elegir',
+      unitsLeft: 'quedan',
+      unitsSingular: 'disponible',
+      unitsPlural: 'disponibles',
+      totalLabel: 'Total por',
+      days: 'días',
+    },
+    extras: {
+      title: 'Extras opcionales',
+      none: 'Sin extras por ahora — puedes agregarlos después con el staff.',
+      perDay: '/día',
+      perRental: '/renta',
+      qty: 'Cantidad',
+      estimate: 'Total estimado',
+    },
+    customer: {
+      title: 'Tus datos',
+      name: 'Nombre completo',
+      email: 'Email',
+      phone: 'Teléfono (WhatsApp)',
+      flightNumber: 'No. de vuelo (opcional)',
+      flightHint: 'Si te entregamos en el aeropuerto, nos ayuda a rastrear retrasos.',
+      submit: 'Continuar',
+    },
+    payment: {
+      title: 'Anticipo o pago en mostrador',
+      deposit: 'Pagar anticipo (20%)',
+      depositDesc: 'Aparta tu unidad desde hoy; el resto se paga al recoger el auto.',
+      onPickup: 'Pagar todo en mostrador',
+      onPickupDesc: 'Tu reservación queda sujeta a confirmación del staff.',
+      confirm: 'Confirmar reservación',
+      submitting: 'Confirmando…',
+    },
+    done: {
+      title: '¡Listo! Tu reservación quedó registrada',
+      instructions:
+        'Envíanos el mensaje de WhatsApp con tu código para fijar la hora exacta de entrega. Te esperamos.',
+    },
+    summary: {
+      days: 'Días de renta',
+      discount: 'Descuento por renta larga',
+      extras: 'Extras',
+      delivery: 'Entrega',
+      taxes: 'IVA',
+      total: 'Total',
+      deposit: 'Anticipo',
+    },
+  },
+  faq: {
+    title: 'Preguntas frecuentes',
+    subtitle: 'Requisitos, depósitos y seguros — lo que más nos preguntan antes de reservar.',
+    q1: '¿Qué licencia necesito para rentar?',
+    a1: 'Licencia de conducir vigente con al menos 1 año de antigüedad. Aceptamos licencias extranjeras acompañadas de pasaporte.',
+    q2: '¿Cómo funciona el depósito?',
+    a2: 'Se deja un depósito por categoría de auto (tarjeta o efectivo) que se devuelve íntegro al entregar el vehículo sin daños.',
+    q3: '¿Qué seguro incluye la tarifa?',
+    a3: 'Todas las tarifas incluyen seguro de cobertura amplia con dedicible según categoría; el seguro premium (deducible cero) se agrega como extra al cotizar.',
+    q4: '¿Hay edad mínima para rentar?',
+    a4: 'Sí, 21 años con licencia vigente. Conductores de 21 a 24 años pueden requerir autorización especial — confírmalo por WhatsApp.',
+    q5: '¿Puedo agregar un segundo conductor?',
+    a5: 'Sí. El conductor adicional se agrega como extra al cotizar; debe presentar su licencia al momento de la entrega.',
+    q6: '¿Puedo salir de Yucatán?',
+    a6: 'Sí, viajes a Campeche y Quintana Roo están permitidos; avísanos al reservar para que la póliza lo cubra.',
+    q7: '¿Cuál es la política de cancelación?',
+    a7: 'Cancelación sin costo avisando con anticipación. Si pagaste anticipo, se te reembolsa por el mismo medio.',
+    q8: '¿Qué métodos de pago aceptan?',
+    a8: 'Efectivo, transferencia y tarjeta en mostrador. El cobro en línea llegará próximamente.',
+    q9: '¿Qué pasa si mi vuelo se retrasa?',
+    a9: 'Deja tu número de vuelo al reservar: el staff sigue el vuelo y reprograma la entrega sin costo.',
+  },
+  locations: {
+    title: 'Ubicaciones y entregas',
+    subtitle: 'Aeropuerto de Mérida (MID) y entrega a tu hotel en las principales zonas de la ciudad.',
+    airport: {
+      title: 'Aeropuerto Internacional de Mérida (MID)',
+      meetingPoint:
+        'Nos vemos en la salida de llegadas nacionales con un letrero a tu nombre; la entrega toma unos 10 minutos.',
+      step1: 'Aterriza y recoge tu equipaje',
+      step2: 'Avísanos por WhatsApp que ya llegaste',
+      step3: 'Recibe el auto en la salida de llegadas: firma y llévate',
+      flightNote:
+        'Al reservar te pedimos tu número de vuelo: si se retrasa, reprogramamos la entrega sin costo.',
+    },
+    hotel: {
+      title: 'Entrega a hotel',
+      note: 'Eliges la zona al cotizar; el cargo por zona se muestra antes de reservar. Entregas de 7:00 a 21:00.',
+    },
+    zones: {
+      airport_mid: {
+        name: 'Aeropuerto MID',
+        desc: 'Entrega en terminal, sin cargo adicional.',
+      },
+      centro: {
+        name: 'Centro de Mérida',
+        desc: 'Centro histórico y alrededores.',
+      },
+      norte: {
+        name: 'Zona norte',
+        desc: 'Plaza Altabrisa, City Center y alrededores.',
+      },
+      hotel_zone: {
+        name: 'Zona hotelera',
+        desc: 'Paseo de Montejo y hoteles de lujo.',
+      },
+    },
+    mapTitle: 'Mapa de Mérida y el aeropuerto',
+    cta: 'Cotizar mi entrega',
+  },
+  contact: {
+    title: 'Contacto',
+    intro: 'Estamos en Mérida, Yucatán. Lo más rápido es WhatsApp: contestamos el mismo día.',
+    whatsappMessage: 'Hola, quiero cotizar una renta de auto',
+    whatsappCta: 'Escríbenos por WhatsApp',
+    phone: 'Teléfono',
+    email: 'Email',
+    hours: 'Horario',
+    hoursNote: 'Entregas en aeropuerto fuera de horario con cita previa.',
+    addressLabel: 'Dirección',
+    mapTitle: 'Cómo llegar',
+    mapCta: 'Abrir en Google Maps',
+    business: 'Reseñas de Google',
+    quoteCta: 'O cotiza fechas y precio en línea',
+  },
+  footer: {
+    tagline: 'Renta de autos en Mérida con seguro incluido y entrega a domicilio.',
+    contactTitle: 'Contacto',
+    navTitle: 'Sitio',
+    addressTitle: 'Dirección',
+    hours: 'Lun a Sáb, 8:00 – 20:00',
+    whatsappMessage: 'Hola, quiero información sobre rentas',
+    rights: 'Todos los derechos reservados.',
+    madeIn: 'Hecho en Mérida, Yucatán',
+  },
+};
+
+// MISMAS llaves exactas que es: si falta una, TS grita aquí (compilación) y
+// no en runtime — el requisito del contrato de ui.ts.
+const en: typeof es = {
+  nav: {
+    home: 'Home',
+    fleet: 'Fleet',
+    locations: 'Locations',
+    faq: 'FAQ',
+    contact: 'Contact',
+    book: 'Book now',
+    whatsapp: 'Hi, I would like a car rental quote',
+  },
+  home: {
+    hero: {
+      title: 'Your car in Mérida, no surprises',
+      subtitle:
+        'Rent with insurance included and delivery to the airport or your hotel. Quote in 1 minute, confirm on WhatsApp.',
+    },
+    trust: {
+      years: 'Years renting in Yucatán',
+      fleet: 'Recent, well-maintained fleet',
+      insurance: 'Full-coverage insurance included',
+      whatsapp: '24/7 support on WhatsApp',
+    },
+    fleetPreview: {
+      title: 'Our fleet',
+      cta: 'See the whole fleet',
+    },
+    reviews: {
+      title: 'What our customers say',
+    },
+  },
+  quote: {
+    pickupZone: 'Pickup zone',
+    pickupDate: 'Pickup',
+    returnDate: 'Return',
+    submit: 'Get a quote',
+    timezoneNote: 'Mérida local time (CST)',
+    zones: {
+      airport_mid: 'MID Airport (free)',
+      centro: 'Downtown Mérida',
+      norte: 'North side',
+      hotel_zone: 'Hotel zone',
+    },
+    error: {
+      required: 'Fill in all three fields to quote',
+      endBeforeStart: 'Return must be after pickup',
+      tooSoon: 'Book at least 3 hours ahead',
+    },
+  },
+  fleet: {
+    title: 'Fleet',
+    subtitle: 'Every car comes with insurance included and a clear daily rate.',
+    description:
+      'Rental car catalog in Mérida: compacts, SUVs and vans with insurance included and airport or hotel delivery.',
+    from: 'From',
+    perDay: '/day',
+    all: 'All',
+    cta: 'View details',
+    empty: 'There are no cars listed in the catalog right now.',
+    emptyCta: 'Message us on WhatsApp and we will quote you today',
+    pricesNote:
+      'Base daily rates. The final price is calculated when you quote your dates (seasons and long-rental discounts apply).',
+    specs: {
+      seats: 'seats',
+      luggage: 'bags',
+      transmission: 'transmission',
+    },
+    transmission: {
+      automatic: 'Automatic',
+      manual: 'Manual',
+    },
+    category: {
+      small: 'Economy',
+      compact: 'Compact',
+      medium: 'Mid-size',
+      large: 'Full-size',
+      suv: 'SUV',
+      van: 'Van',
+      cargo: 'Cargo',
+    },
+    detail: {
+      bookCta: 'Book this car',
+      whatsapp: 'Hi, I am interested in the',
+      checkDates: 'Quote your dates to see availability and the final price.',
+      priceNote: 'Base price per day; the total depends on your dates and season.',
+      notFound: 'This car is not available or no longer exists.',
+      notFoundCta: 'See the full catalog',
+      backToFleet: '← Back to fleet',
+    },
+  },
+  booking: {
+    pageTitle: 'Book your car in Mérida',
+    pageDesc:
+      'Quote and book in 1 minute: final price with insurance included and delivery to MID airport or your hotel. Confirmation via WhatsApp.',
+    stepsSummary: 'Pick dates → car → extras → your info → payment → done',
+    noscriptTitle: 'The booking engine requires JavaScript.',
+    noscriptMessage: 'Hi, I want to book a car',
+    noscriptCta: 'Book via WhatsApp',
+    trust: {
+      insurance: 'Full-coverage insurance included in every rate.',
+      cancelation: 'Free cancellation with reasonable notice.',
+      support: 'Questions? Message us on WhatsApp at any step.',
+    },
+    steps: {
+      range: 'Dates',
+      car: 'Car',
+      extras: 'Extras',
+      customer: 'Your info',
+      payment: 'Payment',
+      done: 'Done',
+    },
+    back: 'Back',
+    conflict: 'That car was just booked. Here are other options.',
+    error: 'We could not complete the booking. Please try again.',
+    whatsappCta: 'Confirm on WhatsApp',
+    codeLabel: 'Your booking code',
+    range: {
+      title: 'When do you need it?',
+      zone: 'Pickup zone',
+      start: 'Pickup',
+      end: 'Return',
+      submit: 'Search available cars',
+      tooSoon: 'Book at least 3 hours ahead',
+      endBeforeStart: 'Return must be after pickup',
+      tooLong: 'The maximum range is 60 days',
+      pickTime: 'Pickup time',
+      returnTime: 'Return time',
+      pickDate: 'Pickup date',
+      returnDate: 'Return date',
+    },
+    car: {
+      title: 'Available cars',
+      empty:
+        'No units available for those dates. Try different dates or message us on WhatsApp.',
+      select: 'Choose',
+      unitsLeft: '',
+      unitsSingular: 'available',
+      unitsPlural: 'available',
+      totalLabel: 'Total for',
+      days: 'days',
+    },
+    extras: {
+      title: 'Optional extras',
+      none: 'No extras for now — you can add them later with our staff.',
+      perDay: '/day',
+      perRental: '/rental',
+      qty: 'Qty',
+      estimate: 'Estimated total',
+    },
+    customer: {
+      title: 'Your info',
+      name: 'Full name',
+      email: 'Email',
+      phone: 'Phone (WhatsApp)',
+      flightNumber: 'Flight number (optional)',
+      flightHint: 'If we deliver at the airport, it helps us track delays.',
+      submit: 'Continue',
+    },
+    payment: {
+      title: 'Deposit or pay at pickup',
+      deposit: 'Pay deposit (20%)',
+      depositDesc: 'Locks your unit today; the rest is due when you pick up the car.',
+      onPickup: 'Pay everything at pickup',
+      onPickupDesc: 'Your booking stays subject to staff confirmation.',
+      confirm: 'Confirm booking',
+      submitting: 'Confirming…',
+    },
+    done: {
+      title: 'You are all set! Your booking is registered',
+      instructions:
+        'Send us the WhatsApp message with your code to set the exact pickup time. See you soon!',
+    },
+    summary: {
+      days: 'Rental days',
+      discount: 'Long-rental discount',
+      extras: 'Extras',
+      delivery: 'Delivery',
+      taxes: 'VAT',
+      total: 'Total',
+      deposit: 'Deposit',
+    },
+  },
+  faq: {
+    title: 'Frequently asked questions',
+    subtitle: 'Requirements, deposits and insurance — what we get asked most before booking.',
+    q1: 'What license do I need to rent?',
+    a1: 'A valid driver’s license held for at least 1 year. Foreign licenses are accepted with a passport.',
+    q2: 'How does the deposit work?',
+    a2: 'A deposit per car category (card or cash) is fully refunded when you return the vehicle without damage.',
+    q3: 'What insurance is included?',
+    a3: 'All rates include full-coverage insurance with a category-based deductible; premium insurance (zero deductible) can be added as an extra when quoting.',
+    q4: 'Is there a minimum age?',
+    a4: 'Yes, 21 with a valid license. Drivers aged 21–24 may need special authorization — confirm with us on WhatsApp.',
+    q5: 'Can I add a second driver?',
+    a5: 'Yes. The additional driver is added as an extra when quoting and must show a license at pickup.',
+    q6: 'Can I leave Yucatán?',
+    a6: 'Yes, trips to Campeche and Quintana Roo are allowed; let us know when booking so the policy covers it.',
+    q7: 'What is the cancellation policy?',
+    a7: 'Free cancellation with advance notice. If you paid a deposit, it is refunded the same way.',
+    q8: 'What payment methods do you accept?',
+    a8: 'Cash, transfer and card at the counter. Online payments are coming soon.',
+    q9: 'What if my flight is delayed?',
+    a9: 'Leave your flight number when booking: staff tracks the flight and reschedules pickup at no cost.',
+  },
+  locations: {
+    title: 'Locations & delivery',
+    subtitle: 'Mérida International Airport (MID) and hotel delivery across the main areas of the city.',
+    airport: {
+      title: 'Mérida International Airport (MID)',
+      meetingPoint:
+        'We meet you at the domestic arrivals exit with a sign with your name; pickup takes about 10 minutes.',
+      step1: 'Land and pick up your bags',
+      step2: 'Message us on WhatsApp that you arrived',
+      step3: 'Get the car at arrivals: sign and drive away',
+      flightNote:
+        'We ask for your flight number when booking: if it is delayed, we reschedule pickup at no cost.',
+    },
+    hotel: {
+      title: 'Hotel delivery',
+      note: 'You choose the zone when quoting; the zone fee is shown before booking. Deliveries from 7:00 to 21:00.',
+    },
+    zones: {
+      airport_mid: {
+        name: 'MID Airport',
+        desc: 'Terminal delivery, no extra charge.',
+      },
+      centro: {
+        name: 'Downtown Mérida',
+        desc: 'Historic center and surroundings.',
+      },
+      norte: {
+        name: 'North side',
+        desc: 'Plaza Altabrisa, City Center and surroundings.',
+      },
+      hotel_zone: {
+        name: 'Hotel zone',
+        desc: 'Paseo de Montejo and upscale hotels.',
+      },
+    },
+    mapTitle: 'Map of Mérida and the airport',
+    cta: 'Quote my delivery',
+  },
+  contact: {
+    title: 'Contact',
+    intro: 'We are in Mérida, Yucatán. WhatsApp is the fastest way — we reply the same day.',
+    whatsappMessage: 'Hi, I would like a car rental quote',
+    whatsappCta: 'Message us on WhatsApp',
+    phone: 'Phone',
+    email: 'Email',
+    hours: 'Hours',
+    hoursNote: 'Airport deliveries outside hours by appointment.',
+    addressLabel: 'Address',
+    mapTitle: 'Getting here',
+    mapCta: 'Open in Google Maps',
+    business: 'Google reviews',
+    quoteCta: 'Or quote dates and price online',
+  },
+  footer: {
+    tagline: 'Car rental in Mérida with insurance included and door-to-door delivery.',
+    contactTitle: 'Contact',
+    navTitle: 'Site',
+    addressTitle: 'Address',
+    hours: 'Mon–Sat, 8:00 – 20:00',
+    whatsappMessage: 'Hi, I would like rental information',
+    rights: 'All rights reserved.',
+    madeIn: 'Made in Mérida, Yucatán',
+  },
+};
+
+export const ui = { es, en };

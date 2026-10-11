@@ -1,0 +1,208 @@
+---
+// Detalle de modelo ES (/flota/[slug]) — SSR dinámico. Modelo inexistente o
+// inactivo → 404 REAL con contenido útil (nunca redirect). SIN cálculo de
+// disponibilidad aquí: la cotización vive en /api/quote.
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { sql } from '../../lib/db';
+import { useTranslations, getLocalizedPath } from '../../i18n/utils';
+import { buildWhatsAppUrl } from '../../lib/whatsapp';
+
+export const prerender = false;
+
+const t = useTranslations('es');
+const slug = Astro.params.slug ?? '';
+
+const rows = await sql`
+  SELECT m.slug, m.name, m.category, m.transmission, m.seats,
+         m.luggage, m.daily_rate_cents, m.photos, m.active,
+         COUNT(v.id)::int AS active_units
+  FROM vehicle_models m
+  LEFT JOIN vehicles v ON v.model_id = m.id AND v.status = 'active'
+  WHERE m.slug = ${slug}
+  GROUP BY m.id
+  LIMIT 1
+`;
+const row = rows[0];
+
+const model = row
+  ? {
+      slug: row.slug as string,
+      name: row.name as string,
+      category: row.category as string,
+      transmission: row.transmission as string,
+      seats: Number(row.seats),
+      luggage: Number(row.luggage),
+      dailyRateCents: Number(row.daily_rate_cents),
+      photos: (row.photos as string[]) ?? [],
+      activeUnits: Number(row.active_units),
+    }
+  : null;
+
+if (!model || !row.active) {
+  // 404 real: desindexa limpio y retiene al visitante con CTAs útiles.
+  Astro.response.status = 404;
+}
+
+const price = model
+  ? new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 })
+      .format(model.dailyRateCents / 100)
+  : '';
+
+const bookUrl = model ? `${getLocalizedPath('/reservar', 'es')}?model=${model.slug}` : '';
+const whatsappUrl = model ? buildWhatsAppUrl(`${t('fleet.detail.whatsapp')} ${model.name}`) : '';
+
+const productJsonLd = model
+  ? {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: model.name,
+      brand: { '@type': 'Brand', name: model.name.split(' ')[0] },
+      ...(model.photos.length > 0 ? { image: model.photos } : {}),
+      offers: {
+        '@type': 'Offer',
+        priceCurrency: 'MXN',
+        price: (model.dailyRateCents / 100).toFixed(2),
+        availability: model.activeUnits > 0
+          ? 'https://schema.org/InStock'
+          : 'https://schema.org/OutOfStock',
+      },
+    }
+  : null;
+---
+
+<BaseLayout
+  lang="es"
+  title={model ? `${model.name} — ${t('fleet.from')} ${price}/día` : t('fleet.detail.notFound')}
+  description={model ? `${model.name}: ${t('fleet.detail.priceNote')}` : t('fleet.detail.notFound')}
+  alternateUrl={model ? `/en/fleet/${model.slug}` : '/en/fleet'}
+>
+  {model && row.active ? (
+    <section class="mx-auto max-w-6xl px-4 py-10">
+      <a href={getLocalizedPath('/flota', 'es')} class="text-sm text-brand hover:underline">
+        {t('fleet.detail.backToFleet')}
+      </a>
+      <div class="mt-4 grid gap-8 lg:grid-cols-[3fr_2fr]">
+        <div class="space-y-3">
+          {
+            model.photos.length > 0 ? (
+              <>
+                <div class="img-loading relative flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-xl border">
+                  <span class="text-6xl opacity-40" aria-hidden="true">🚗</span>
+                  <img
+                    src={model.photos[0]}
+                    alt={model.name}
+                    width="960"
+                    height="600"
+                    loading="eager"
+                    decoding="async"
+                    class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
+                    onload="this.classList.add('opacity-100');this.parentElement.classList.add('is-loaded')"
+                    onerror="this.parentElement.classList.add('is-loaded')"
+                  />
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                  {model.photos.slice(1, 4).map((photo) => (
+                    <div class="img-loading relative flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-lg border">
+                      <span class="text-2xl opacity-40" aria-hidden="true">🚗</span>
+                      <img
+                        src={photo}
+                        alt={`${model.name}`}
+                        width="320"
+                        height="200"
+                        loading="lazy"
+                        decoding="async"
+                        class="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500"
+                        onload="this.classList.add('opacity-100');this.parentElement.classList.add('is-loaded')"
+                        onerror="this.parentElement.classList.add('is-loaded')"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div class="flex aspect-[16/10] w-full items-center justify-center rounded-xl border bg-muted text-8xl" aria-hidden="true">
+                🚗
+              </div>
+            )
+          }
+        </div>
+
+        <div class="space-y-6">
+          <div>
+            <p class="text-sm font-medium text-brand-dark">{t(`fleet.category.${model.category}`)}</p>
+            <h1 class="mt-1 text-3xl font-bold tracking-tight">{model.name}</h1>
+          </div>
+
+          <dl class="grid grid-cols-3 gap-3 rounded-xl border p-4 text-center text-sm">
+            <div>
+              <dt class="text-muted-foreground">{t('fleet.specs.seats')}</dt>
+              <dd class="mt-1 text-lg font-semibold">{model.seats}</dd>
+            </div>
+            <div>
+              <dt class="text-muted-foreground">{t('fleet.specs.luggage')}</dt>
+              <dd class="mt-1 text-lg font-semibold">{model.luggage}</dd>
+            </div>
+            <div>
+              <dt class="text-muted-foreground">{t('fleet.specs.transmission')}</dt>
+              <dd class="mt-1 text-lg font-semibold">{t(`fleet.transmission.${model.transmission}`)}</dd>
+            </div>
+          </dl>
+
+          <div>
+            <p class="flex items-baseline gap-1">
+              <span class="text-muted-foreground">{t('fleet.from')}</span>
+              <span class="text-3xl font-bold text-brand">{price}</span>
+              <span class="text-muted-foreground">{t('fleet.perDay')}</span>
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">{t('fleet.detail.priceNote')}</p>
+          </div>
+
+          <p class="rounded-lg bg-brand-soft p-3 text-sm text-brand-dark">
+            {t('fleet.detail.checkDates')}
+          </p>
+
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <a
+              href={bookUrl}
+              class="inline-flex flex-1 items-center justify-center rounded-lg bg-brand px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-dark"
+            >
+              {t('fleet.detail.bookCta')}
+            </a>
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener"
+              class="inline-flex items-center justify-center rounded-lg border border-[#25D366] px-6 py-3 font-semibold text-[#128C7E]"
+            >
+              WhatsApp
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  ) : (
+    <section class="mx-auto max-w-2xl px-4 py-20 text-center">
+      <h1 class="text-2xl font-bold">{t('fleet.detail.notFound')}</h1>
+      <div class="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+        <a
+          href={getLocalizedPath('/flota', 'es')}
+          class="inline-flex items-center justify-center rounded-lg bg-brand px-6 py-3 font-semibold text-white"
+        >
+          {t('fleet.detail.notFoundCta')}
+        </a>
+        <a
+          href={whatsappUrl}
+          target="_blank"
+          rel="noopener"
+          class="inline-flex items-center justify-center rounded-lg border border-[#25D366] px-6 py-3 font-semibold text-[#128C7E]"
+        >
+          WhatsApp
+        </a>
+      </div>
+    </section>
+  )}
+
+  {productJsonLd && (
+    <script type="application/ld+json" set:html={JSON.stringify(productJsonLd)} slot="head" />
+  )}
+</BaseLayout>

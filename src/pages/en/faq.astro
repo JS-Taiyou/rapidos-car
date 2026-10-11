@@ -1,53 +1,47 @@
 ---
-// ============================================================================
-// PÁGINA: FAQ EN (/en/faq) — estática — ESPEJO de src/pages/faq.astro
-// ============================================================================
-// PROPÓSITO: las mismas preguntas (requisitos, depósitos, seguros) redactadas
-// en inglés. La guía completa (acordeón con <details>, lista de preguntas)
-// está en src/pages/faq.astro — léela primero; aquí solo va lo que cambia.
-//
-// Render: ESTÁTICA, igual que la ES. Acordeón con <details>/<summary>
-// nativo — cero JavaScript (ARCHITECTURE §2.7).
-//
-// DIFERENCIAS vs src/pages/faq.astro (lista exacta — todo lo demás es
-// idéntico):
-// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`;
-//    `alternateUrl="/faq"`; canonical → /en/faq.
-// 2. Las preguntas/respuestas se redactan A MANO en inglés (spec §1:
-//    traducción HUMANA, no automática). Los textos de depósitos y seguros
-//    tienen implicaciones casi legales: una traducción automática puede
-//    invertir el sentido ("depósito reembolsable" ≠ "non-refundable fee").
-//    Si el cliente no provee la traducción, redáctala y márcala para su
-//    revisión — no la dejes pasar por machine translation sin aviso.
-//    Claves: las MISMAS que la guía ES (faq.q1, faq.a1, …) con valores EN.
-// 3. El JSON-LD FAQPage (schema.org) también va en inglés: Google indexa por
-//    idioma y cada versión debe declarar sus preguntas en SU idioma; mezclar
-//    preguntas en español dentro de la página EN diluye la señal. Si el
-//    JSON-LD se genera en BaseLayout a partir de un array, pásale el array
-//    ya traducido con t().
-// 4. Los imports relativos suben un nivel: '../../layouts/...', etc.
-//
-// ERRORES COMUNES DEL ESPEJO:
-// - alternateUrl apuntando a /en/faq o / → rompe hreflang; aquí SIEMPRE es
-//   "/faq". Verifica el <link rel="alternate"> generado.
-// - Hardcodear las Q/A en inglés directo en el HTML → la fuente única es
-//   ui.ts; hardcodear aquí duplica contenido que luego nadie actualiza.
-// - Traducir con máquina y publicar sin revisión humana → spec §1 lo prohíbe
-//   explícitamente (punto 2 del frontmatter).
-// - Cambiar la estructura (qué preguntas y en qué orden) solo en este idioma
-//   → las dos versiones deben cubrir lo mismo; el JSON-LD ES y EN deben
-//   listar las mismas preguntas, cada una en su idioma.
-// - Traducir paths de API → los endpoints /api/* NO tienen versión EN; el
-//   idioma viaja en el body del request o en las props de las islas.
-// ============================================================================
+// FAQ EN (/en/faq) — ESPEJO de src/pages/faq.astro. Preguntas redactadas a
+// mano en inglés (spec §1: sin machine translation); el JSON-LD también va
+// en inglés (mismo array, mismas claves, valores EN).
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { useTranslations } from '../../i18n/utils';
+
+const t = useTranslations('en');
+
+const questions = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
+  q: t(`faq.q${n}`),
+  a: t(`faq.a${n}`),
+}));
+
+const faqJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: questions.map((item) => ({
+    '@type': 'Question',
+    name: item.q,
+    acceptedAnswer: { '@type': 'Answer', text: item.a },
+  })),
+};
 ---
 
-<!-- =========================================================================
-     TEMPLATE: idéntico al de src/pages/faq.astro. Cambian solo:
-     1. <BaseLayout lang="en" title={...} description={...} alternateUrl="/faq">
-     2. Cada <details>/<summary> con t('faq.qN') / t('faq.aN') vía
-        useTranslations('en')
-     3. JSON-LD FAQPage con las preguntas en inglés (punto 3 del frontmatter)
-     Mismo markup de acordeón nativo, cero JavaScript, mismo orden de
-     preguntas que la versión ES.
-     ========================================================================== -->
+<BaseLayout lang="en" title={`${t('faq.title')} — Rapidoz Car Rental`} description={t('faq.subtitle')} alternateUrl="/faq">
+  <section class="mx-auto max-w-3xl px-4 py-12">
+    <h1 class="text-3xl font-bold tracking-tight">{t('faq.title')}</h1>
+    <p class="mt-2 text-muted-foreground">{t('faq.subtitle')}</p>
+
+    <div class="mt-8 divide-y rounded-xl border">
+      {
+        questions.map((item, i) => (
+          <details class="group p-4" open={i === 0}>
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 font-medium [&::-webkit-details-marker]:hidden">
+              {item.q}
+              <span class="text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+            </summary>
+            <p class="mt-3 text-sm leading-relaxed text-muted-foreground">{item.a}</p>
+          </details>
+        ))
+      }
+    </div>
+  </section>
+
+  <script type="application/ld+json" set:html={JSON.stringify(faqJsonLd)} slot="head" />
+</BaseLayout>

@@ -1,86 +1,125 @@
 ---
-// ============================================================================
-// COMPONENTE: Header — chrome superior del sitio público
-// ============================================================================
-// PROPÓSITO: logo, navegación principal, CTA de WhatsApp y switcher ES|EN.
-// Lo monta BaseLayout en TODAS las páginas (no se importa por página — ver
-// la guía del layout).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * CERO JavaScript: el header es chrome estático. Las islas React se
-//   reservan para interacción real (cotizar, reservar) — ARCHITECTURE §2.1.
-//   El menú móvil se resuelve con <details>/<summary> nativo (o checkbox
-//   hack): accesible, funciona sin JS y sin hidratación.
-// * Links NUNCA hardcodeados: se generan desde un array {key, path} +
-//   getLocalizedPath() de src/i18n/utils.ts. El espejo EN reutiliza este
-//   mismo componente con lang="en" y obtiene /en/fleet, /en/book… gratis.
-//   Un href literal rompería el espejo.
-// * El switcher de idioma apunta a getAlternateUrl(Astro.url.pathname):
-//   usa la URL ACTUAL y NO lleva estado (ni ?lang= ni localStorage — las
-//   URLs deben ser compartibles y rastreables por Google). Limitación MVP
-//   documentada: en páginas de detalle (/flota/versa) el switcher cae en el
-//   índice de la sección (/en/fleet) porque el slug no tiene traducción 1:1
-//   garantizada; el SEO correcto de esas páginas lo cubre el <link
-//   hreflang> del layout con su propia alternateUrl. Cuando todos los slugs
-//   tengan espejo confirmado, extiende getAlternateUrl y borra esta nota.
-// * sticky top + backdrop-blur sobre fondo semitransparente: el CTA de
-//   WhatsApp queda siempre a un tap (embudo WhatsApp-nativo, spec §3.6) y
-//   da sensación de app sin una línea de JS.
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Props: interface Props { lang: Lang }. Obtener `t` con
-//    useTranslations(lang) e importar getLocalizedPath/getAlternateUrl de
-//    '../i18n/utils' y buildWhatsAppUrl de '../lib/whatsapp'.
-// 2. Declarar en el frontmatter el array de navegación (orden = orden
-//    visual):
-//      const navItems = [
-//        { key: 'nav.home',      path: '/' },
-//        { key: 'nav.fleet',     path: '/flota' },
-//        { key: 'nav.locations', path: '/ubicaciones' },
-//        { key: 'nav.faq',       path: '/faq' },
-//        { key: 'nav.contact',   path: '/contacto' },
-//      ]
-//    Cada <a> se renderiza con href={getLocalizedPath(item.path, lang)} y
-//    texto t(item.key). Marca el link activo comparando Astro.url.pathname
-//    (clase distinta + aria-current="page").
-// 3. Logo: texto "Rapidoz" + mark SVG inline (un solo <path> — rayo o
-//    silueta de auto). Inline = sin request extra y hereda currentColor.
-// 4. CTA WhatsApp: botón con href={buildWhatsAppUrl(t('nav.whatsapp'))} —
-//    el helper es puro y funciona en frontmatter. target="_blank"
-//    rel="noopener". En mobile el CTA queda visible junto a la hamburguesa:
-//    es la acción #1 del negocio.
-// 5. Switcher ES|EN: dos <a> ("ES" / "EN") hacia getAlternateUrl(
-//    Astro.url.pathname); el idioma activo va marcado con aria-current.
-// 6. Menú móvil: <details class="md:hidden"> con <summary> estilizado como
-//    botón hamburguesa (icono SVG inline, cursor-pointer) y la MISMA lista
-//    navItems en columna dentro. Desktop: <nav class="hidden md:flex"> con
-//    los mismos items en fila. Ambos menús salen del MISMO array — jamás
-//    dupliques la lista a mano (se desincronizan).
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Props: { lang: Lang }. Consume: useTranslations, getLocalizedPath,
-// getAlternateUrl (i18n/utils), buildWhatsAppUrl (lib/whatsapp).
-// Sin slots, sin estado, sin JS. Lo monta BaseLayout.
-//
-// ERRORES COMUNES
-// - Hrefs literales ('/flota') → el espejo EN navega a rutas en español.
-// - Menú móvil con useState/onClick → JS innecesario en chrome estático.
-// - Switcher con ?lang= o estado → URLs no compartibles y SEO roto.
-// - Esconder el CTA de WhatsApp dentro del menú móvil → entierras la
-//   acción principal.
-// ============================================================================
+// Chrome superior: logo, navegación, CTA de WhatsApp y switcher ES|EN.
+// CERO JavaScript: el menú móvil es <details>/<summary> nativo. Los links
+// salen del MISMO array navItems en ambos menús.
+import { useTranslations, getLocalizedPath, getAlternateUrl, type Lang } from '../i18n/utils';
+import { buildWhatsAppUrl } from '../lib/whatsapp';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const navItems = [
+  { key: 'nav.home', path: '/' },
+  { key: 'nav.fleet', path: '/flota' },
+  { key: 'nav.locations', path: '/ubicaciones' },
+  { key: 'nav.faq', path: '/faq' },
+  { key: 'nav.contact', path: '/contacto' },
+];
+
+// Normaliza el slash final que el build estático agrega ('/faq/').
+const currentPath =
+  Astro.url.pathname.length > 1 && Astro.url.pathname.endsWith('/')
+    ? Astro.url.pathname.slice(0, -1)
+    : Astro.url.pathname;
+const whatsappUrl = buildWhatsAppUrl(t('nav.whatsapp'));
 ---
 
-<!-- =========================================================================
-     TEMPLATE: <header class="sticky top-0 z-50 backdrop-blur bg-.../80">
-     con una barra flex: logo a la izquierda, <nav> desktop al centro, CTA
-     WhatsApp + switcher ES|EN a la derecha, y el <details> hamburguesa solo
-     en mobile con la misma navItems en columna. Todo texto vía t(), toda
-     ruta vía getLocalizedPath.
-     ========================================================================== -->
+<header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur">
+  <div class="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4">
+    <a href={getLocalizedPath('/', lang)} class="flex items-center gap-2 font-bold" aria-label="Rapidoz">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z"
+          class="fill-brand"
+        ></path>
+      </svg>
+      <span class="text-lg tracking-tight">Rapidoz</span>
+    </a>
+
+    <nav class="hidden items-center gap-1 md:flex" aria-label={lang === 'es' ? 'Principal' : 'Main'}>
+      {
+        navItems.map((item) => {
+          const href = getLocalizedPath(item.path, lang);
+          const active = currentPath === href || (href !== getLocalizedPath('/', lang) && currentPath.startsWith(href));
+          return (
+            <a
+              href={href}
+              class:list={[
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground',
+                active ? 'text-brand' : 'text-muted-foreground',
+              ]}
+              aria-current={active ? 'page' : undefined}
+            >
+              {t(item.key)}
+            </a>
+          );
+        })
+      }
+    </nav>
+
+    <div class="ml-auto flex items-center gap-2">
+      <a
+        href={getAlternateUrl(currentPath)}
+        class="hidden rounded-md border border-border px-2 py-1 text-xs font-semibold sm:block"
+        aria-label={lang === 'es' ? 'Switch to English' : 'Cambiar a español'}
+      >
+        <span class:list={[lang === 'es' ? 'text-brand' : 'text-muted-foreground']} aria-current={lang === 'es' ? 'true' : undefined}>ES</span>
+        <span class="text-muted-foreground">|</span>
+        <span class:list={[lang === 'en' ? 'text-brand' : 'text-muted-foreground']} aria-current={lang === 'en' ? 'true' : undefined}>EN</span>
+      </a>
+      <a
+        href={whatsappUrl}
+        target="_blank"
+        rel="noopener"
+        class="inline-flex items-center gap-2 rounded-md bg-[#25D366] px-3 py-2 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path
+            d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1a10 10 0 0 1-4-2.6 9.3 9.3 0 0 1-1.9-3c-.2-.6-.1-1.2.1-1.6.2-.4.6-.9 1-1.1.2-.1.5-.1.7 0 .2.1.4.2.5.5l.7 1.5c.1.2.1.4 0 .6l-.4.6c-.1.2-.2.3-.1.5.4.8 1.6 2.2 3 2.8.2.1.4 0 .5-.1l.6-.6c.2-.2.4-.2.6-.1l1.5.8c.2.1.4.3.4.5.1.2 0 .5-.1.7Z"
+          ></path>
+        </svg>
+        <span class="hidden sm:inline">{t('nav.book')}</span>
+        <span class="sm:hidden">WhatsApp</span>
+      </a>
+
+      <details class="relative md:hidden">
+        <summary
+          class="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-md border border-border [&::-webkit-details-marker]:hidden"
+          aria-label={lang === 'es' ? 'Abrir menú' : 'Open menu'}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"></path>
+          </svg>
+        </summary>
+        <nav
+          class="absolute right-0 top-12 flex w-56 flex-col gap-1 rounded-lg border border-border bg-background p-2 shadow-lg"
+          aria-label={lang === 'es' ? 'Móvil' : 'Mobile'}
+        >
+          {
+            navItems.map((item) => (
+              <a
+                href={getLocalizedPath(item.path, lang)}
+                class="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                {t(item.key)}
+              </a>
+            ))
+          }
+          <a
+            href={getLocalizedPath('/reservar', lang)}
+            class="mt-1 rounded-md bg-brand px-3 py-2 text-center text-sm font-semibold text-white"
+          >
+            {t('nav.book')}
+          </a>
+          <a href={getAlternateUrl(currentPath)} class="mt-1 rounded-md border border-border px-3 py-2 text-center text-xs font-semibold">
+            {lang === 'es' ? 'Switch to English' : 'Cambiar a español'}
+          </a>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>

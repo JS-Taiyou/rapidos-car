@@ -1,107 +1,123 @@
-// ============================================================================
-// LIB: availability — motor de disponibilidad por unidad (spec §3.3)
-// ============================================================================
-// Propósito: dado un rango [start, end) y una zona, decir qué MODELOS tienen
-// unidades libres y cuántas. Es la mitad del "technical showcase" (spec §9);
-// la otra mitad es pricing.ts. SQL explícito, sin ORM (ARCHITECTURE §2.4).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * La disponibilidad se consulta por MODELO pero se decide por UNIDAD: el
-//   cliente ve "quedan 2 Versa"; la reservación amarra una placa concreta en
-//   la transacción (eso vive en /api/bookings, no aquí).
-// * El buffer de rotación (turnaround_buffer_minutes de settings) se aplica
-//   EXPANDIENDO el rango consultado, no restando disponibilidad después: si
-//   pides 12:00→12:00 y el buffer es 2 h, la unidad debe estar libre de
-//   10:00 a 14:00. Así el solape lo calcula Postgres con `&&`, no tu código.
-// * Una sola query para "unidades libres por modelo": N+1 queries es la
-//   trampa clásica aquí (spec §2: cada query cuenta en el free tier).
-// * Esta función es CONSULTA (para /api/quote); la GARANTÍA es la constraint
-//   de exclusión en la BD. No confundir "parece libre" con "está apartado":
-//   entre ambos hay una carrera que solo Postgres resuelve (ARCHITECTURE §2.9).
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Importar el cliente `sql` desde './db' (el singleton postgres.js) y el
-//    tipo de retorno desde './validation' (o decláralo aquí y expórtalo):
-//      interface ModelAvailability {
-//        slug: string; name: string; category: string
-//        transmission: string; seats: number; luggage: number
-//        dailyRateCents: number; photos: string[]
-//        unitsAvailable: number
-//      }
-//
-// 2. Declarar `getTurnaroundBufferMinutes(sql)`: SELECT value FROM settings
-//    WHERE key='turnaround_buffer_minutes', parseInt del jsonb.
-//    Por qué leerla en cada llamada y no cachear en módulo: el admin puede
-//    cambiarla (fase 2) y un proceso serverless puede vivir minutos; una
-//    query extra de una tabla de 5 renglones es despreciable vs. servir
-//    disponibilidad con un buffer viejo.
-//
-// 3. Declarar la función exportada:
-//      export async function findAvailableModels(start: Date, end: Date):
-//        Promise<ModelAvailability[]>
-//    Query (escríbela con sql`...` de postgres.js; los parámetros se pasan
-//    como ${start}, ${end}, ${bufferMinutes} y se escapan solos):
-//      SELECT m.slug, m.name, m.category, m.transmission, m.seats,
-//             m.luggage, m.daily_rate_cents, m.photos,
-//             COUNT(v.id) AS units_available
-//      FROM vehicle_models m
-//      JOIN vehicles v
-//        ON v.model_id = m.id AND v.status = 'active'
-//      WHERE m.active = true
-//        AND NOT EXISTS (
-//          SELECT 1 FROM bookings b
-//          WHERE b.vehicle_id = v.id
-//            AND b.status IN ('confirmed','active')
-//            AND b.period && tstzrange(
---                  ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
---                  ${end}::timestamptz   + (${bufferMinutes} || ' minutes')::interval,
---                  '[)')
-//        )
-//      GROUP BY m.id
-//      ORDER BY m.daily_rate_cents ASC
-//    Lectura de la query (para que la entiendas antes de escribirla):
-//    "modelos activos con al menos una unidad activa para la que NO EXISTE
-//    una renta/bloqueo vigente que solape el rango pedido, expandido por el
-//    buffer en ambos extremos". El operador && es solape de rangos; el
---    '[)' significa intervalo cerrado-abierto: devolver a las 12:00 y
-//    entregar a las 12:00 del mismo instante NO choca — decisión deliberada,
-//    de lo contrario rentas back-to-back serían imposibles y el buffer ya
-//    cubre la limpieza.
-//    Nota: el buffer expande AMBOS lados. Si el negocio quiere buffer solo
-//    post-devolución, quita la expansión del inicio y documéntalo aquí.
-//
-// 4. Filtrar `units_available > 0` ya viene gratis del NOT EXISTS+COUNT, pero
-//    castea el COUNT a number en JS (postgres.js devuelve bigint como string
-//    en algunos drivers — verifica con un log la primera vez).
-//
-// 5. Función auxiliar exportada para /api/bookings:
-//      export async function pickFreeUnit(sql, modelSlug, start, end,
-//        bufferMinutes): Promise<number | null>
-//    Misma lógica de NOT EXISTS pero `SELECT v.id ... LIMIT 1 FOR UPDATE` —
-//    se llama DENTRO de la transacción de creación; el FOR UPDATE bloquea la
-//    fila de la unidad para que dos requests no agarren la misma placa a la
-//    vez (segunda línea de defensa; la constraint EXCLUDE es la última).
-//    Por qué recibe `sql` como parámetro: dentro de una transacción debes
-//    usar el sql transaccional que te pasa postgres.js, no el singleton.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Consume: db.ts (singleton sql), settings.turnaround_buffer_minutes.
-// Expone: findAvailableModels(start, end), pickFreeUnit(sqlTx, slug, start,
-// end, buffer) y el tipo ModelAvailability. Lo usan /api/quote y
-// /api/bookings. Nada de React aquí: este archivo corre solo en servidor.
-//
-// ERRORES COMUNES
-// - Comparar start/end como strings: castea a timestamptz en SQL y manda
-//   Date nativo desde JS; nunca concatenes fechas en el texto SQL.
-// - Usar la constraint como plan A de disponibilidad en la cotización: para
-//   LISTAR necesitas la query de arriba; la constraint solo protege el
-//   INSERT final.
-// - Olvidar v.status='active': una unidad en taller (sin bloqueo cargado)
-//   seguiría "disponible".
-// ============================================================================
+// Motor de disponibilidad por unidad (spec §3.3). La disponibilidad se
+// CONSULTA por modelo pero se DECIDE por unidad: "quedan 2 Versa"; la
+// reservación amarra una placa concreta en la transacción (/api/bookings).
+// Esta función es consulta; la GARANTÍA es la constraint no_overlap (§2.9).
+import type { Sql } from './db';
+import { sql as dbSql } from './db';
+
+export interface ModelAvailability {
+  slug: string;
+  name: string;
+  category: string;
+  transmission: string;
+  seats: number;
+  luggage: number;
+  dailyRateCents: number;
+  photos: string[];
+  unitsAvailable: number;
+}
+
+// Se lee en cada llamada (no se cachea en módulo): el admin puede cambiarla
+// y una query extra sobre una tabla de 5 renglones es despreciable.
+export async function getTurnaroundBufferMinutes(sql: Sql): Promise<number> {
+  const rows = await sql`SELECT value FROM settings WHERE key = 'turnaround_buffer_minutes'`;
+  return Number(rows[0]?.value ?? 0);
+}
+
+export async function findAvailableModels(start: Date, end: Date): Promise<ModelAvailability[]> {
+  const bufferMinutes = await getTurnaroundBufferMinutes(dbSql);
+  const rows = await dbSql`
+    SELECT m.slug, m.name, m.category, m.transmission, m.seats,
+           m.luggage, m.daily_rate_cents, m.photos,
+           COUNT(v.id)::int AS units_available
+    FROM vehicle_models m
+    JOIN vehicles v
+      ON v.model_id = m.id AND v.status = 'active'
+    WHERE m.active = true
+      AND NOT EXISTS (
+        SELECT 1 FROM bookings b
+        WHERE b.vehicle_id = v.id
+          AND b.status IN ('confirmed','active')
+          AND b.period && tstzrange(
+                ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
+                ${end}::timestamptz   + (${bufferMinutes} || ' minutes')::interval,
+                '[)')
+      )
+    GROUP BY m.id
+    ORDER BY m.daily_rate_cents ASC
+  `;
+  return rows.map((r: Record<string, unknown>) => ({
+    slug: r.slug as string,
+    name: r.name as string,
+    category: r.category as string,
+    transmission: r.transmission as string,
+    seats: Number(r.seats),
+    luggage: Number(r.luggage),
+    dailyRateCents: Number(r.daily_rate_cents),
+    photos: (r.photos as string[]) ?? [],
+    unitsAvailable: Number(r.units_available),
+  }));
+}
+
+// Misma lógica de NOT EXISTS pero elige UNA unidad y la bloquea con FOR
+// UPDATE: se llama DENTRO de la transacción de creación para que dos
+// requests no agarren la misma placa a la vez. Recibe `sql` por parámetro
+// porque dentro de una transacción se usa el sql transaccional, no el
+// singleton.
+export async function pickFreeUnit(
+  sql: Sql,
+  modelSlug: string,
+  start: Date,
+  end: Date,
+  bufferMinutes: number,
+): Promise<number | null> {
+  const rows = await sql`
+    SELECT v.id
+    FROM vehicles v
+    JOIN vehicle_models m ON m.id = v.model_id
+    WHERE m.slug = ${modelSlug}
+      AND m.active = true
+      AND v.status = 'active'
+      AND NOT EXISTS (
+        SELECT 1 FROM bookings b
+        WHERE b.vehicle_id = v.id
+          AND b.status IN ('confirmed','active')
+          AND b.period && tstzrange(
+                ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
+                ${end}::timestamptz   + (${bufferMinutes} || ' minutes')::interval,
+                '[)')
+      )
+    ORDER BY v.id
+    LIMIT 1
+    FOR UPDATE OF v
+  `;
+  return rows.length > 0 ? Number(rows[0].id) : null;
+}
+
+// Verifica que ESA unidad (elegida por placa en el admin) está libre para el
+// rango expandido por el buffer — misma query que pickFreeUnit pero con
+// v.id fijo. También transaccional (FOR UPDATE).
+export async function isUnitFree(
+  sql: Sql,
+  vehicleId: number,
+  start: Date,
+  end: Date,
+  bufferMinutes: number,
+): Promise<boolean> {
+  const rows = await sql`
+    SELECT v.id
+    FROM vehicles v
+    WHERE v.id = ${vehicleId}
+      AND NOT EXISTS (
+        SELECT 1 FROM bookings b
+        WHERE b.vehicle_id = v.id
+          AND b.status IN ('confirmed','active')
+          AND b.period && tstzrange(
+                ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
+                ${end}::timestamptz   + (${bufferMinutes} || ' minutes')::interval,
+                '[)')
+      )
+    FOR UPDATE OF v
+  `;
+  return rows.length > 0;
+}

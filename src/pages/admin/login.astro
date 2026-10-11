@@ -1,83 +1,41 @@
 ---
-// ============================================================================
-// PÁGINA: Admin — Login (/admin/login) — SSR
-// ============================================================================
-// PROPÓSITO
-// ----------------------------------------------------------------------------
-// Única puerta de entrada al panel: autenticar al dueño contra admin_users y
-// dejar caer la cookie de sesión. Herramienta interna: solo español, SIN
-// BaseLayout público (nada de SEO, Header ni Footer del sitio).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * ÚNICA página /admin/* SIN requireAdmin (ARCHITECTURE §2.3): la guardia de
-//   las demás páginas redirige AQUÍ cuando no hay sesión. Si esta página
-//   también la llamara, /admin/login se redirigiría a sí misma en un bucle
-//   infinito de redirects. Si algún día migras la guardia a middleware,
-//   excluye esta ruta explícitamente.
-// * meta robots noindex (CRÍTICO): el panel no debe indexarse en buscadores.
-//   Nadie llega a /admin/login desde Google por una razón legítima; aparecer
-//   ahí es pura superficie de ataque sin beneficio.
-// * El rate limiting vive en el endpoint /api/auth (rechaza intentos
-//   repetidos de password), NO aquí: esta página solo dibuja el formulario.
-// * La "card" es HTML+Tailwind puro: el Card de shadcn es React y usarlo
-//   obligaría a otra isla para un div con borde. No.
+// Admin — Login (/admin/login) — SSR. ÚNICA página /admin/* SIN requireAdmin
+// (llamarla aquí sería un bucle de redirects). El "card" es HTML+Tailwind
+// puro: el Card de shadcn es React.
+import { getSessionUser, SESSION_COOKIE } from '../../lib/auth';
+import { sql } from '../../lib/db';
+import '../../styles/global.css';
+import LoginForm from '../../components/react/admin/LoginForm.tsx';
 
-// export const prerender = false;   // descomenta al instalar el adapter — ARCHITECTURE §6
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Importar `getSessionUser` desde '../../lib/auth.ts' y leer la cookie de
-//    sesión con Astro.cookies.get(...) usando el mismo nombre/constante que
-//    defina auth.ts. Pasarle el valor a getSessionUser.
-// 2. Si devuelve un admin (sesión YA válida), hacer
-//    `return Astro.redirect('/admin')` ANTES de renderizar.
-//    Por qué: quien ya entró no debe volver a ver el formulario; un re-login
-//    innecesario confunde y siembra sesiones duplicadas en la tabla sessions.
-// 3. Importar '../../styles/global.css' (Tailwind v4) en el frontmatter.
-// 4. Importar `LoginForm` desde '../../components/react/admin/LoginForm.tsx'
-//    y montarlo con `client:load`: la página ES el formulario; debe hidratar
-//    de inmediato (client:idle/visible no aplican aquí).
-// 5. Template (shell mínimo propio, ver bloque inferior):
-//    a. <html lang="es">, <head> con charset, viewport,
-//       <meta name="robots" content="noindex, nofollow"> y
-//       <title>Acceso — Rapidoz Admin</title>.
-//    b. <body> con fondo muted y centrado: flex min-h-screen items-center
-//       justify-center.
-//    c. Caja tipo card: div max-w-sm w-full rounded-xl border shadow con el
-//       logo/nombre del negocio y el subtítulo "Panel interno".
-//    d. Dentro de la caja: <LoginForm client:load />.
-// 6. El formulario hace POST /api/auth (ver la guía de ese endpoint): en
-//    éxito el endpoint fija la cookie httpOnly y la isla redirige a /admin.
-//    Esta página NUNCA procesa credenciales.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Consume: getSessionUser (../../lib/auth.ts) y la isla LoginForm.
-// No expone nada. El POST real, el hash PBKDF2 y el rate limiting viven en
-// /api/auth.
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// * Agregar requireAdmin "por consistencia" → bucle de redirect
-//   /admin/login → /admin/login. Es LA trampa de esta página.
-// * Olvidar el meta noindex → el login termina indexado en Google.
-// * Usar BaseLayout → arrastra hreflang, JSON-LD y Header público a una
-//   herramienta interna.
-// * Importar el Card de shadcn en el .astro → es React; sin isla no compila
-//   como componente estático.
-// ============================================================================
+export const prerender = false;
+
+// Sesión ya válida → al panel, sin volver a ver el formulario (un re-login
+// innecesario siembra sesiones duplicadas).
+const token = Astro.cookies.get(SESSION_COOKIE)?.value;
+if (token) {
+  const user = await getSessionUser(sql, token);
+  if (user) return Astro.redirect('/admin');
+}
 ---
 
-<!-- =========================================================================
-     TEMPLATE del login (shell mínimo, sin layout):
-     1. <html lang="es"> + <head> con charset/viewport, meta robots noindex
-        y <title>Acceso — Rapidoz Admin</title>.
-     2. <body> con fondo muted y centrado flex (paso 5b del frontmatter).
-     3. Caja-card con logo + "Panel interno" + <LoginForm client:load />.
-     Nada más: sin Header, sin Footer, sin SEO, sin i18n (el panel es solo ES).
-     ========================================================================== -->
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Acceso — Rapidoz Admin</title>
+  </head>
+  <body class="flex min-h-screen items-center justify-center bg-muted">
+    <main class="w-full max-w-sm rounded-xl border bg-background p-8 shadow">
+      <h1 class="flex items-center gap-2 text-xl font-bold">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
+        </svg>
+        Rapidoz
+      </h1>
+      <p class="mb-6 mt-1 text-sm text-muted-foreground">Panel interno</p>
+      <LoginForm client:load />
+    </main>
+  </body>
+</html>

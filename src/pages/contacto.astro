@@ -1,76 +1,90 @@
 ---
-// ============================================================================
-// PÁGINA: Contacto ES (/contacto) — estática
-// ============================================================================
-// PROPÓSITO: convertir la visita en conversación de WhatsApp o llamada. Es
-// la tarjeta de presentación del negocio, NO un buzón de mensajes
-// (spec §3.6).
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * SIN formulario de contacto — decisión fuerte: los forms genéricos
-//   ("nombre, email, mensaje") generan spam y leads fríos que hay que
-//   perseguir por correo; el negocio opera por WhatsApp y por el funnel de
-//   cotización (spec §3.6: TODO request entra al mismo embudo). wa.me
-//   filtra mejor que cualquier honeypot: escribir desde tu número real ya
-//   es un lead caliente (los bots llenan forms; no mandan WhatsApp). Si
-//   algún día hace falta form, va con captcha invisible y endpoint propio
-//   — fase 2, y se documenta en ARCHITECTURE.
-// * Mensaje WhatsApp pre-llenado DISTINTO al genérico del Header: aquí es
-//   "Hola, quiero cotizar una renta" (t('contact.whatsappMessage')) — el
-//   staff sabe de qué página viene el mensaje por el texto (atribución
-//   gratis, sin analytics invasivo).
-// * NAP idéntico al Footer y al JSON-LD del layout (Name-Address-Phone):
-//   la consistencia es señal de ranking local (spec §6).
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Imports: BaseLayout ('../layouts/BaseLayout.astro'),
-//    useTranslations/getLocalizedPath de '../i18n/utils', buildWhatsAppUrl
-//    de '../lib/whatsapp'.
-// 2. Frontmatter: const t = useTranslations('es'); const whatsappUrl =
-//    buildWhatsAppUrl(t('contact.whatsappMessage')).
-// 3. Template — tarjeta de contacto (grid de 2 columnas en desktop):
-//    a. CANALES (columna 1):
-//       - WhatsApp: botón grande a whatsappUrl — acción #1, primero y más
-//         visible: es el canal operativo del negocio.
-//       - Teléfono: <a href="tel:+5219990000000"> con el número formateado
-//         para humanos en el texto y sin espacios en el href.
-//       - Email: <a href="mailto:…"> (canal secundario, clientes formales).
-//       - Horario: t('contact.hours') — incluir nota de entregas en
-//         aeropuerto fuera de horario si aplica (diferenciador frente a
-//         cadenas, spec §3.4).
-//    b. DIRECCIÓN + MAPA (columna 2): dirección visible (la misma del
-//       Footer) + iframe de Google Maps con loading="lazy" y title (mismo
-//       criterio que /ubicaciones: iframe oficial, cero SDK, alto fijo).
-//    c. REDES/AUTORIDAD: links a Google Business (reseñas) y redes si
-//       existen — target="_blank" rel="noopener".
-//    d. CTA de regreso al funnel: link "cotiza fechas y precio en línea" a
-//       getLocalizedPath('/reservar', 'es') — contacto y motor se
-//       refuerzan entre sí.
-// 4. Claves nuevas en ui.ts: contact.* (title, intro, whatsappMessage,
-//    hours, addressLabel…). El espejo EN (/en/contact) reutiliza todo con
-//    lang="en" y alternateUrl="/contacto".
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Consume: BaseLayout, i18n (contact.*), whatsapp.ts. Estática, sin BD, sin
-// JS. Espejo EN: /en/contact.
-//
-// ERRORES COMUNES
-// - Agregar form de contacto → spam y leads fríos; WhatsApp es el filtro.
-// - href tel: con espacios o formato visual → marca mal en mobile.
-// - NAP distinto al del footer/JSON-LD → daña el SEO local.
-// - Iframe de Maps sin lazy → pesa el LCP de la página más simple del
-//   sitio.
-// ============================================================================
+// Contacto ES (/contacto) — SIN formulario (decisión fuerte, spec §3.6):
+// wa.me filtra mejor que cualquier honeypot; TODO request entra al mismo
+// embudo. NAP idéntico al Footer y al JSON-LD (fuente única business.ts).
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { useTranslations, getLocalizedPath } from '../i18n/utils';
+import { buildWhatsAppUrl } from '../lib/whatsapp';
+import { business } from '../lib/business';
+
+const t = useTranslations('es');
+const whatsappUrl = buildWhatsAppUrl(t('contact.whatsappMessage'));
 ---
 
-<!-- =========================================================================
-     TEMPLATE: BaseLayout > h1 + grid de dos columnas: canales (WhatsApp,
-     teléfono, email, horario) y dirección con iframe lazy > links a Google
-     Business/redes > CTA a /reservar.
-     ========================================================================== -->
+<BaseLayout lang="es" title={`${t('contact.title')} — Rapidoz Rental`} description={t('contact.intro')} alternateUrl="/en/contact">
+  <section class="mx-auto max-w-5xl px-4 py-12">
+    <h1 class="text-3xl font-bold tracking-tight">{t('contact.title')}</h1>
+    <p class="mt-2 text-muted-foreground">{t('contact.intro')}</p>
+
+    <div class="mt-10 grid gap-8 lg:grid-cols-2">
+      <div class="space-y-4">
+        <a
+          href={whatsappUrl}
+          target="_blank"
+          rel="noopener"
+          class="flex items-center gap-4 rounded-xl border border-[#25D366] bg-[#25D366]/5 p-5 transition-colors hover:bg-[#25D366]/10"
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="#25D366" aria-hidden="true">
+            <path
+              d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1a10 10 0 0 1-4-2.6 9.3 9.3 0 0 1-1.9-3c-.2-.6-.1-1.2.1-1.6.2-.4.6-.9 1-1.1.2-.1.5-.1.7 0 .2.1.4.2.5.5l.7 1.5c.1.2.1.4 0 .6l-.4.6c-.1.2-.2.3-.1.5.4.8 1.6 2.2 3 2.8.2.1.4 0 .5-.1l.6-.6c.2-.2.4-.2.6-.1l1.5.8c.2.1.4.3.4.5.1.2 0 .5-.1.7Z"
+            ></path>
+          </svg>
+          <span>
+            <span class="block text-lg font-semibold">{t('contact.whatsappCta')}</span>
+            <span class="block text-sm text-muted-foreground">{business.phoneDisplay}</span>
+          </span>
+        </a>
+
+        <div class="rounded-xl border p-5 text-sm">
+          <dl class="space-y-3">
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted-foreground">{t('contact.phone')}</dt>
+              <dd><a class="font-medium hover:text-brand" href={`tel:${business.phone}`}>{business.phoneDisplay}</a></dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted-foreground">{t('contact.email')}</dt>
+              <dd><a class="font-medium hover:text-brand" href={`mailto:${business.email}`}>{business.email}</a></dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted-foreground">{t('contact.hours')}</dt>
+              <dd class="text-right">
+                Lun a Sáb, 8:00 – 20:00<br />
+                Dom, 9:00 – 15:00
+                <span class="block text-xs text-muted-foreground">{t('contact.hoursNote')}</span>
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <a href={getLocalizedPath('/reservar', 'es')} class="inline-block text-sm font-medium text-brand hover:underline">
+          {t('contact.quoteCta')} →
+        </a>
+      </div>
+
+      <div class="space-y-3">
+        <address class="rounded-xl border p-5 text-sm not-italic">
+          <p class="font-semibold">{t('contact.addressLabel')}</p>
+          <p class="mt-1 text-muted-foreground">{business.addressDisplay}</p>
+          <a
+            class="mt-2 inline-block text-sm font-medium text-brand hover:underline"
+            href={business.mapsUrl}
+            target="_blank"
+            rel="noopener"
+          >
+            {t('contact.mapCta')} →
+          </a>
+        </address>
+        <div class="overflow-hidden rounded-xl border">
+          <iframe
+            title={t('contact.mapTitle')}
+            src="https://www.google.com/maps?q=Calle%2060%20Nte%20339%20Centro%20M%C3%A9rida&output=embed"
+            width="100%"
+            height="320"
+            loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+          ></iframe>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

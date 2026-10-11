@@ -1,107 +1,120 @@
-// ============================================================================
-// ISLA REACT: QuoteWidget — cotizador del hero (spec §3.1)
-// ============================================================================
-// Propósito: el formulario de 3 campos que abre el funnel desde la home:
-// zona de entrega + fecha/hora de salida + fecha/hora de regreso. NO cotiza
-// nada: valida lo mínimo y navega a /reservar (o /en/book) con los valores
-// en query params, donde BookingFlow hace el trabajo real.
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * `useState` por campo (pickupZone, start, end) + un estado de error — NO
-//   useReducer: son 3 campos independientes, sin transiciones válidas ni
-//   datos que dependan unos de otros. Contrasta con BookingFlow, donde el
-//   funnel sí es máquina de estados (ARCHITECTURE §2.8): aquí un reducer de
-//   tres acciones SET_* que solo copian valores sería ceremonia sin nada
-//   testeable. El error se fija al validar en el submit; no hay derivados
-//   que recalcular, así que tampoco hace falta useMemo fuera del `min`.
-// * Las zonas llegan por PROP `zones` (la página las lee de settings en el
-//   servidor), no se fetchean desde la isla: la home es estática/SSR y las
-//   zonas no cambian por interacción del usuario — un fetch aquí sería un
-//   round-trip y un estado de carga para datos que ya estaban en el HTML.
-// * `<Input type="datetime-local">` NATIVO y no el Calendar/Popover de
-//   shadcn: el picker bonito vive en BookingFlow; este widget es lo primero
-//   que se pinta (hero) y el presupuesto es LCP < 2 s en 4G (spec §6). El
-//   input nativo cuesta 0 bytes de JS extra y en móvil abre el picker del
-//   sistema operativo.
-// * Validación SOLO al submit (end > start, start ≥ ahora + 3 h de lead
-//   time): error inline traducido bajo el formulario, NUNCA toast — el
-//   formulario está a la vista; un toast de sonner sería redundante.
-// * Navegar a la página dedicada en vez de montar el wizard inline en el
-//   hero: BookingFlow es pesado (Calendar, pasos, fetch de quote) para la
-//   primera pantalla. Además la URL con params (?start=…&end=…&zone=…) es
-//   compartible: el cliente la manda por WhatsApp y abre pre-llenada —
-//   feature gratis (misma razón que en BookingFlow).
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Imports de React: `useState`, `useMemo`. De shadcn/ui: Button, Input,
-//    Label, Select (Trigger/Content/Item/Value). Textos vía
-//    useTranslations(lang) de src/i18n/utils.ts: `const t = useTranslations(lang)`.
-//
-// 2. Props: `{ lang: 'es' | 'en'; zones: Array<{ zone: string; feeCents:
-//    number }> }`. Las claves de zona ('mid', 'centro', 'norte'…) se muestran
-//    traducidas desde el diccionario (t(`zones.${z.zone}`)), nunca texto
-//    hardcodeado; junto al nombre muestra el cargo "+$X MXN" (transparencia
-//    antes que sorpresa en el total).
-//
-// 3. Estado:
-//      const [pickupZone, setPickupZone] = useState('')
-//      const [start, setStart] = useState('')
-//      const [end, setEnd] = useState('')
-//      const [error, setError] = useState<string | null>(null)
-//    Los valores son STRINGS tal como los da datetime-local
-//    ('YYYY-MM-DDTHH:mm'); no conviertas a Date hasta validar.
-//
-// 4. `minDateTime` con useMemo: new Date() + 3 h, formateado a
-//    'YYYY-MM-DDTHH:mm' con padStart en cada componente (datetime-local
-//    exige ese formato exacto; toISOString() NO sirve porque devuelve UTC).
-//    Se asigna al atributo `min` de ambos inputs para que el navegador
-//    bloquee fechas pasadas antes de cualquier JS.
-//
-// 5. Handler `handleSubmit(e)`: preventDefault y validaciones en orden:
-//      a. los 3 campos llenos (el botón ya está disabled, pero revalida);
-//      b. end > start (comparar los strings funciona: son lexicográficamente
-//         ordenables al tener ancho fijo);
-//      c. start ≥ minDateTime.
-//    Si falla: setError con la CLAVE de traducción ('quote.error.endBeforeStart',
-//    'quote.error.tooSoon') y return. Si pasa: setError(null) y navegar.
-//
-// 6. Navegación: construir URLSearchParams con { start, end, zone } y
-//      window.location.href = `${lang === 'en' ? '/en/book' : '/reservar'}?${params}`
-//    Navegación dura, no router: la home y /reservar son páginas MPA
-//    distintas (ARCHITECTURE §2.1) — no hay SPA router que preservar.
-//
-// 7. Markup: <form> con tres bloques Label + control, mensaje de error en
-//    <p role="alert"> bajo el formulario, y Button submit con
-//    `disabled={!pickupZone || !start || !end}`. Un <small> aclara "hora
-//    local de Mérida" junto a los inputs de fecha (ver errores comunes).
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Props: { lang: 'es' | 'en'; zones: { zone: string; feeCents: number }[] }
-// — las pasa la página desde settings (servidor). No consume API: solo
-// produce una navegación a /reservar|/en/book con ?start&end&zone, que
-// BookingFlow leerá al montar. Montar con `client:load` en la home.
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// - TIMEZONE: datetime-local captura la hora LOCAL DEL NAVEGADOR, sin zona.
-//   El negocio opera en America/Merida (CST fijo, sin DST — ARCHITECTURE
-//   §2.13). Para el MVP se asume que quien cotiza está pensando en hora de
-//   Mérida y el SERVIDOR interpreta el string como America/Merida al
-//   convertir a timestamptz (documéntalo también en /api/quote); la UI no
-//   corrige nada. Si fase 2 pide precisión para turistas en otras zonas, la
-//   conversión se hace en servidor, no aquí.
-// - Olvidar el atributo `min`: sin él el usuario elige ayer y el error llega
-//   tarde, después del clic.
-// - Submit habilitado con campos vacíos: deshabilítalo Y revalida en el
-//   handler — el disabled es UX, no validación.
-// - Formatear feeCents con toFixed(2) directo sobre centavos: divide entre
-//   100 antes, mejor con Intl.NumberFormat('es-MX', { style: 'currency',
-//   currency: 'MXN' }).
-// ============================================================================
+// Cotizador del hero (spec §3.1): zona de entrega + salida + regreso. NO
+// cotiza nada: valida lo mínimo y navega a /reservar (o /en/book) con los
+// valores en query params, donde BookingFlow hace el trabajo real.
+import { useMemo, useState } from 'react';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
+import { useTranslations, type Lang } from '../../i18n/utils';
+
+interface Props {
+  lang: Lang;
+  zones: Array<{ zone: string; feeCents: number }>;
+}
+
+// datetime-local exige 'YYYY-MM-DDTHH:mm' exacto; toISOString() NO sirve
+// (devuelve UTC).
+function toLocalInput(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+const feeFmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+export default function QuoteWidget({ lang, zones }: Props) {
+  const t = useTranslations(lang);
+  const [pickupZone, setPickupZone] = useState('');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Bloquea fechas pasadas antes de cualquier JS (atributo min de ambos
+  // inputs). Lead time del negocio: 3 h.
+  const minDateTime = useMemo(() => toLocalInput(new Date(Date.now() + 3 * 60 * 60 * 1000)), []);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    // El disabled es UX, no validación: revalidar siempre.
+    if (!pickupZone || !start || !end) {
+      setError(t('quote.error.required'));
+      return;
+    }
+    // Strings de ancho fijo: comparación lexicográfica válida.
+    if (end <= start) {
+      setError(t('quote.error.endBeforeStart'));
+      return;
+    }
+    if (start < minDateTime) {
+      setError(t('quote.error.tooSoon'));
+      return;
+    }
+    setError(null);
+    // Navegación dura, no router: home y /reservar son páginas MPA distintas.
+    const params = new URLSearchParams({ start, end, zone: pickupZone });
+    window.location.href = `${lang === 'en' ? '/en/book' : '/reservar'}?${params.toString()}`;
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="w-full rounded-xl border border-border/60 bg-background/95 p-4 shadow-lg backdrop-blur sm:p-5"
+    >
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="qw-zone">{t('quote.pickupZone')}</Label>
+          <Select value={pickupZone} onValueChange={setPickupZone}>
+            <SelectTrigger id="qw-zone">
+              <SelectValue placeholder={t('quote.pickupZone')} />
+            </SelectTrigger>
+            <SelectContent>
+              {zones.map((z) => (
+                <SelectItem key={z.zone} value={z.zone}>
+                  {t(`quote.zones.${z.zone}`)}
+                  {z.feeCents > 0 ? ` (+${feeFmt.format(z.feeCents / 100)})` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="qw-start">{t('quote.pickupDate')}</Label>
+          <Input
+            id="qw-start"
+            type="datetime-local"
+            value={start}
+            min={minDateTime}
+            onChange={(e) => setStart(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="qw-end">{t('quote.returnDate')}</Label>
+          <Input
+            id="qw-end"
+            type="datetime-local"
+            value={end}
+            min={minDateTime}
+            onChange={(e) => setEnd(e.target.value)}
+          />
+        </div>
+      </div>
+      {error && (
+        <p role="alert" className="mt-3 text-sm font-medium text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <small className="text-xs text-muted-foreground">{t('quote.timezoneNote')}</small>
+        <Button type="submit" className="sm:w-auto" disabled={!pickupZone || !start || !end}>
+          {t('quote.submit')}
+        </Button>
+      </div>
+    </form>
+  );
+}

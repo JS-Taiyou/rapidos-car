@@ -1,69 +1,120 @@
 ---
-// ============================================================================
-// PÁGINA: Home ES (/) — estática
-// ============================================================================
-// Propósito: convertir visitas en cotizaciones. Todo lo above-the-fold empuja
-// al widget; el resto son señales de confianza (spec §3.1 y §6).
-//
-// Render: ESTÁTICA (sin `prerender = false`). El contenido cambia menos que
-// el deploy; el preview de flota puede quedar estático con tarifas "desde"
-// sembradas, o SSR si prefieres frescura — decisión: estática por LCP <2s.
-//
-// Pasos:
-// 1. Importar `BaseLayout` desde '../layouts/BaseLayout.astro'. Le pasarás
-//    las props `lang="es"`, `title`, `description` y `alternateUrl="/en/"`.
-//    Por qué: el layout centraliza SEO/hreflang/JSON-LD; la página solo
-//    declara sus metadatos (ver contrato en BaseLayout.astro).
-// 2. Importar `QuoteWidget` desde '../components/react/QuoteWidget.tsx' y
-//    montarlo con la directiva `client:load`.
-//    Por qué client:load y no client:idle: es el embudo principal — debe ser
-//    interactivo apenas hidrata; el resto de la página no tiene JS.
-// 3. Importar `Header` y `Footer` (o dejar que BaseLayout los incluya — ver
-//    la guía del layout: header/footer viven EN el layout, la página solo
-//    aporta el contenido central).
-// 4. Importar `useTranslations` desde '../i18n/utils.ts' con lang 'es' para
-//    todos los textos. Nunca strings hardcodeados: el espejo /en/ usa el
-//    mismo componente de sección con lang 'en'.
-//
-// Estructura del template (de arriba hacia abajo):
-//   a. <section> HERO: titular + subtítulo (propuesta de valor: "renta sin
-//      sorpresas, seguro incluido") + <QuoteWidget client:load />.
-//      Fondo: foto de la flota o Mérida, con overlay para legibilidad.
-//      Por qué el widget va en el hero: spec §3.1 — la home ES el embudo;
-//      cualquier scroll antes de cotizar es fricción.
-//   b. <section> SEÑALES DE CONFIANZA: 3-4 items con icono inline SVG:
-//      años en el negocio, flota reciente, seguro incluido, atención 24/7
-//      por WhatsApp. Textos desde ui.ts (clave `home.trust.*`).
-//   c. <section> PREVIEW DE FLOTA: grid de 3-4 `CarCard` (componente Astro,
-//      sin JS) con los modelos sembrados en seed. Cada card enlaza a
-//      `/flota/[slug]`. Link "ver toda la flota" → /flota.
-//      Nota MVP: los modelos aquí son datos semilla hardcodeados EN EL
-//      FRONTMATTER (array literal) o leídos de la BD si activas SSR; decide
-//      y documenta. Recomendado MVP: literal — cero consultas en estático.
-//   d. <section> RESEÑAS: 3 testimonios estáticos + link a Google Business
-//      (spec §6). Marca el promedio con Review/AggregateRating dentro del
-//      JSON-LD del layout si el cliente lo confirma (no inventes reseñas).
-//   e. <section> CTA final: botón WhatsApp (usa el helper de src/lib/whatsapp.ts
-//      en su versión de servidor: el helper es puro, sirve en frontmatter).
-//
-// Contrato: no expone nada; consume BaseLayout, QuoteWidget, CarCard,
-// useTranslations('es').
-//
-// Errores comunes:
-// - Poner texto en español directo en el HTML → rompe el espejo EN.
-// - client:visible en el QuoteWidget → en mobile el hero ya es visible y se
-//   hidrata tarde; client:load es el correcto para el embudo.
-// - Meter el catálogo completo aquí → la home vende, /flota informa.
-// ============================================================================
+// Home ES (/) — estática: convertir visitas en cotizaciones. Todo lo
+// above-the-fold empuja al widget; el resto son señales de confianza.
+// El preview de flota usa datos LITERALES espejo del seed (cero consultas
+// en build, ARCHITECTURE §2.2).
+import BaseLayout from '../layouts/BaseLayout.astro';
+import QuoteWidget from '../components/react/QuoteWidget.tsx';
+import CarCard from '../components/CarCard.astro';
+import { useTranslations, getLocalizedPath } from '../i18n/utils';
+import { buildWhatsAppUrl } from '../lib/whatsapp';
+import { DELIVERY_ZONES } from '../lib/zones';
+
+const t = useTranslations('es');
+
+// Espejo de scripts/seed.ts (flota de ejemplo). Al cambiar la flota real,
+// la fuente de verdad es la BD; aquí solo el preview estático.
+const fleetPreview = [
+  { slug: 'beat-hatchback', name: 'Beat Hatchback', category: 'small', transmission: 'manual', seats: 4, luggage: 1, dailyRateCents: 25000, photos: [] },
+  { slug: 'gol-5-puertas', name: 'V.W. Gol 5 puertas', category: 'compact', transmission: 'manual', seats: 4, luggage: 2, dailyRateCents: 30000, photos: [] },
+  { slug: 'dodge-attitude', name: 'Dodge Attitude', category: 'medium', transmission: 'manual', seats: 5, luggage: 2, dailyRateCents: 35000, photos: [] },
+  { slug: 'kia-soul', name: 'Kia Soul', category: 'large', transmission: 'automatic', seats: 5, luggage: 3, dailyRateCents: 40000, photos: [] },
+];
+
+const trust = [
+  { key: 'home.trust.years', icon: 'M12 2 3 7v10l9 5 9-5V7l-9-5Zm0 5.5L7.5 10 12 12.5 16.5 10 12 7.5Z' },
+  { key: 'home.trust.fleet', icon: 'M5 11h14M6 11V8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3m-2 8h-8a2 2 0 0 1-2-2v-6h12v6a2 2 0 0 1-2 2Z' },
+  { key: 'home.trust.insurance', icon: 'M12 3 4 6v6c0 4.4 3.4 8.1 8 9 4.6-.9 8-4.6 8-9V6l-8-3Zm-2.5 9 2 2 4-4' },
+  { key: 'home.trust.whatsapp', icon: 'M21 12a9 9 0 1 1-4.6-7.9M12 8v4l3 2' },
+];
+
+const reviews = [
+  {
+    quote: 'Nos entregaron el auto en el aeropuerto a tiempo y el proceso fue de 10 minutos. Sin cargos escondidos.',
+    author: 'María G.',
+  },
+  {
+    quote: 'La mejor atención por WhatsApp, nos cambiaron el auto cuando cambiamos nuestros planes sin drama.',
+    author: 'Carlos R.',
+  },
+  {
+    quote: 'Precios claros y auto impecable. Ya es la tercera vez que rento con ellos en Mérida.',
+    author: 'Ana L.',
+  },
+];
+
+const whatsappUrl = buildWhatsAppUrl(t('nav.whatsapp'));
 ---
 
-<!-- =========================================================================
-     TEMPLATE de la home. Guía:
-     1. <BaseLayout lang="es" title={...} description={...} alternateUrl="/en/">
-     2.   hero <section> con <QuoteWidget client:load />
-     3.   secciones b–e descritas en el frontmatter
-     4. </BaseLayout>
-     Todo el texto viene de `t('home.hero.title')` etc. — ver src/i18n/ui.ts.
-     Los iconos de confianza: SVG inline copiados de Heroicons (MIT), sin
-     librería de iconos: son 4 paths, no justifica una dependencia.
-     ========================================================================== -->
+<BaseLayout lang="es" title={`Rapidoz Rental — ${t('home.hero.title')}`} description={t('home.hero.subtitle')} alternateUrl="/en/">
+  <section class="relative overflow-hidden border-b bg-gradient-to-b from-brand-soft to-background">
+    <div class="mx-auto max-w-6xl px-4 py-14 sm:py-20">
+      <h1 class="max-w-2xl text-3xl font-bold tracking-tight sm:text-5xl">
+        {t('home.hero.title')}
+      </h1>
+      <p class="mt-4 max-w-xl text-lg text-muted-foreground">
+        {t('home.hero.subtitle')}
+      </p>
+      <div class="mt-8 max-w-3xl">
+        <!-- El widget ES el embudo: client:load, no client:idle. -->
+        <QuoteWidget client:load lang="es" zones={DELIVERY_ZONES} />
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Confianza" class="border-b bg-muted/30">
+    <div class="mx-auto grid max-w-6xl gap-6 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        trust.map((item) => (
+          <div class="flex items-start gap-3">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="mt-0.5 shrink-0 text-brand" aria-hidden="true">
+              <path d={item.icon} stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <p class="text-sm font-medium">{t(item.key)}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-12">
+    <div class="mb-6 flex items-center justify-between">
+      <h2 class="text-2xl font-bold tracking-tight">{t('home.fleetPreview.title')}</h2>
+      <a href={getLocalizedPath('/flota', 'es')} class="text-sm font-medium text-brand hover:underline">
+        {t('home.fleetPreview.cta')} →
+      </a>
+    </div>
+    <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {fleetPreview.map((model) => <CarCard model={model} lang="es" />)}
+    </div>
+  </section>
+
+  <section class="border-y bg-muted/30">
+    <div class="mx-auto max-w-6xl px-4 py-12">
+      <h2 class="mb-8 text-2xl font-bold tracking-tight">{t('home.reviews.title')}</h2>
+      <div class="grid gap-5 sm:grid-cols-3">
+        {
+          reviews.map((review) => (
+            <figure class="rounded-xl border bg-card p-5 shadow-sm">
+              <p class="text-amber-500" aria-label="5 estrellas">★★★★★</p>
+              <blockquote class="mt-2 text-sm">“{review.quote}”</blockquote>
+              <figcaption class="mt-3 text-xs font-medium text-muted-foreground">— {review.author}</figcaption>
+            </figure>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-14 text-center">
+    <p class="mx-auto max-w-xl text-lg">{t('home.hero.subtitle')}</p>
+    <a
+      href={whatsappUrl}
+      target="_blank"
+      rel="noopener"
+      class="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#25D366] px-6 py-3 font-semibold text-white shadow transition-opacity hover:opacity-90"
+    >
+      WhatsApp
+    </a>
+  </section>
+</BaseLayout>

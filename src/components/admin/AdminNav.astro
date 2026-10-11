@@ -1,0 +1,56 @@
+---
+// Nav interna del panel admin (lo usan las 3 páginas con sesión). El botón
+// "Salir" es un form + script inline de 5 líneas: montar React para un fetch
+// sería absurdo (única excepción de JS en el dashboard).
+const current = Astro.url.pathname;
+const links = [
+  { href: '/admin', label: 'Dashboard' },
+  { href: '/admin/reservaciones', label: 'Reservaciones' },
+  { href: '/admin/flota', label: 'Flota' },
+];
+---
+
+<nav class="border-b bg-background">
+  <div class="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
+    <a href="/admin" class="flex items-center gap-2 font-bold">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
+      </svg>
+      Rapidoz <span class="text-sm font-normal text-muted-foreground">Panel</span>
+    </a>
+    <ul class="flex items-center gap-1">
+      {
+        links.map((link) => (
+          <li>
+            <a
+              href={link.href}
+              class:list={[
+                'rounded-md px-3 py-1.5 text-sm font-medium',
+                current === link.href ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent',
+              ]}
+              aria-current={current === link.href ? 'page' : undefined}
+            >
+              {link.label}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+    <form id="logout-form" class="ml-auto">
+      <button
+        type="submit"
+        class="rounded-md border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent"
+      >
+        Salir
+      </button>
+    </form>
+  </div>
+</nav>
+
+<script>
+  document.getElementById('logout-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await fetch('/api/auth', { method: 'DELETE' });
+    window.location.href = '/admin/login';
+  });
+</script>

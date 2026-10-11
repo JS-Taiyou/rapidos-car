@@ -1,98 +1,543 @@
-// ============================================================================
-// ISLA REACT: FleetManager — CRUD de flota (/admin/flota, spec §4.2)
-// ============================================================================
-// Propósito: administrar el catálogo en sus dos niveles (ARCHITECTURE §3):
-// MODELOS (lo que se muestra y cotiza: nombre, categoría, tarifa, fotos,
-// activo) y UNIDADES (las placas físicas con su status). Solo español, sin
-// prop lang.
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * Mismo patrón de estado que ReservationsBoard: useState para los datos +
-//   loadFleet() con re-fetch tras cada mutación, sin optimistic UI. El
-//   catálogo es chico (pocos modelos, decenas de placas): una query después
-//   de guardar cuesta menos que mantener estado derivado sincronizado.
-// * DELETE siempre LÓGICO, nunca físico: bookings históricos referencian
-//   vehicle_id / model_id — un borrado real rompe la FK o se lleva el
-//   historial en cascada. Modelo → active=false (deja de cotizar); unidad →
-//   status='retired'. El botón se ve como "Eliminar", pero
-//   DELETE /api/admin/vehicles/[id] ya hace el borrado lógico en servidor.
-// * Slug autogenerado del nombre con un slugify DE 3 LÍNEAS escrito a mano:
-//   normalize('NFD') + replace(/\p{Diacritic}/gu, '') para quitar acentos,
-//   lowercase, regex [^a-z0-9]+ → '-'. No instales una dependencia para
-//   esto; es la pieza más simple del archivo.
-// * Tarifa: el input trabaja en PESOS (como piensa el admin: "850") y se
-//   convierte a centavos (×100 con Math.round) ANTES de enviar — la BD y
-//   toda la API hablan en centavos (ARCHITECTURE §2.13). El error clásico
-//   es mandar pesos y cobrar 100× menos; queda marcado también abajo.
-// * Fotos: en MVP, un Textarea con una URL por línea (split('\n').map(trim)
-//   .filter(Boolean)). La subida real a R2 con preview es fase 2
-//   (ARCHITECTURE §7) — no metas un uploader aquí todavía.
-// * Tarifas por temporada (seasons): NO se editan aquí. Se sembraron con el
-//   seed y pricing.ts ya las aplica; su UI llega en fase 2 vía settings. Si
-//   se muestran en esta pantalla, read-only informativo — nunca editable.
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Imports: useState, useEffect de react. De shadcn/ui: Table, Badge,
-//    Button, Dialog, Input, Label, Select, sonner. RHF + zodResolver con
-//    vehicleUpsertSchema de src/lib/validation.ts para el Dialog de modelo.
-//
-// 2. Tipos locales: ModelRow { id, slug, name, category, transmission,
-//    seats, luggage, dailyRateCents, photos, active, units: UnitRow[] } y
-//    UnitRow { id, plate, status }. loadFleet(): GET /api/admin/vehicles —
-//    el endpoint ya devuelve las unidades anidadas por modelo; no hagas
-//    N+1 desde el cliente.
-//
-// 3. Sección MODELOS: <Table> con columnas nombre, categoría, tarifa/día
-//    (dailyRateCents/100 → Intl.NumberFormat currency MXN), # unidades
-//    (units.length), activo (switch/checkbox → PATCH
-//    /api/admin/vehicles/[id] con { active: !active } + loadFleet), y botones
-//    Editar / Eliminar. Eliminar abre <Dialog> de confirmación que explica
-//    el borrado lógico ("dejará de cotizar; el historial se conserva") →
-//    DELETE /api/admin/vehicles/[id] + loadFleet + toast.
-//
-// 4. DIALOG de modelo (alta y edición con el mismo componente: si recibe
-//    model, defaultValues con él y submit = PATCH; si no, POST): useForm con
-//    zodResolver(vehicleUpsertSchema). Campos: name (su onBlur rellena slug
-//    con slugify SOLO si slug está vacío — si autogeneras en cada tecla
-//    peleas con lo que el admin escribe), slug, category (Select),
-//    transmission, seats, luggage (type number), dailyRate (pesos, number),
-//    photos (Textarea, una URL por línea). En submit: transformar
-//    dailyRate → dailyRateCents (×100) y photos texto → string[]; POST o
-//    PATCH /api/admin/vehicles[/id]; 200/201 → toast, cerrar, loadFleet();
-//    400 → mapear issues zod a campos con setError.
-//
-// 5. Sección UNIDADES: sub-tabla expandible por fila de modelo (botón ▸ que
-//    toggla un useState<Set<number>> de ids expandidos — más simple que un
-//    segundo panel sincronizado). Columnas: placa, status (Select inline
-//    active|maintenance|retired → PATCH inmediato + loadFleet; 'maintenance'
-//    es el aviso rápido "está en el taller" — los bloqueos CON fechas se
-//    capturan en ReservationsBoard), y quitar (retired). Alta de unidad:
-//    mini-form de un solo Input (placa) + botón → POST /api/admin/vehicles
-//    con body de unidad { modelId, plate } (el endpoint discrimina modelo vs
-//    unidad por el shape del body — documéntalo en la guía de ese endpoint).
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Sin props (isla admin raíz, client:load). Consume GET/POST
-// /api/admin/vehicles y PATCH/DELETE /api/admin/vehicles/[id] (DELETE =
-// borrado lógico: active=false en modelos, status='retired' en unidades).
-// Requiere cookie rapidoz_session; 401 → window.location.href = '/admin/login'.
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// - Mandar la tarifa en pesos sin ×100: todo lo monetario son centavos
-//   (§2.13). Convierte en el submit; al editar, divide /100 al poblar
-//   defaultValues — si no, cada edición infla o desinfla el precio 100×.
-// - DELETE físico: rompe las FK con bookings y pierde el historial de rentas
-//   de esa placa. Lógico, siempre.
-// - slugify con dependencia externa: bastan 3 líneas (normalize, lowercase,
-//   regex). Y solo autogenera el slug cuando está vacío.
-// - Editar seasons aquí: no existe esa UI ni endpoint todavía; mostrarlas
-//   editable implicaría schema + endpoint nuevos — fase 2.
-// ============================================================================
+// FleetManager — CRUD del inventario en sus dos niveles (§3): MODELOS (lo
+// que se cotiza) y UNIDADES (las placas físicas). DELETE siempre LÓGICO
+// (active=false / status='retired'): bookings referencia vehicle_id y el
+// historial no se rompe. Solo español.
+import { useState, useEffect, useCallback, Fragment } from 'react';
+import { Button } from '../../ui/button';
+import { Input } from '../../ui/input';
+import { Label } from '../../ui/label';
+import { Badge } from '../../ui/badge';
+import { Textarea } from '../../ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../ui/dialog';
+import { Toaster, toast } from '../../ui/sonner';
+import { vehicleUpsertSchema } from '../../../lib/validation';
+
+interface UnitRow {
+  id: number;
+  plate: string;
+  status: 'active' | 'maintenance' | 'retired';
+}
+
+interface ModelRow {
+  id: number;
+  slug: string;
+  name: string;
+  category: string;
+  transmission: 'automatic' | 'manual';
+  seats: number;
+  luggage: number;
+  dailyRateCents: number;
+  photos: string[];
+  active: boolean;
+  units: UnitRow[];
+}
+
+const moneyFmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+// slugify de 3 líneas: normalize + quitar diacríticos + regex. Sin dependencia.
+function slugify(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+const CATEGORIES = ['small', 'compact', 'medium', 'large', 'van', 'cargo'];
+const emptyModel = {
+  name: '',
+  slug: '',
+  category: 'compact',
+  transmission: 'automatic' as 'automatic' | 'manual',
+  seats: 5,
+  luggage: 2,
+  dailyRate: 500,
+  photos: '',
+  plates: '',
+};
+
+export default function FleetManager() {
+  const [models, setModels] = useState<ModelRow[]>([]);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<ModelRow | null>(null);
+  const [form, setForm] = useState(emptyModel);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ModelRow | null>(null);
+  const [retireUnits, setRetireUnits] = useState(true);
+  const [newPlates, setNewPlates] = useState<Record<number, string>>({});
+
+  const loadFleet = useCallback(async () => {
+    const res = await fetch('/api/admin/vehicles');
+    if (res.status === 401) {
+      window.location.href = '/admin/login';
+      return;
+    }
+    const data = (await res.json()) as { models: ModelRow[] };
+    setModels(data.models ?? []);
+  }, []);
+
+  useEffect(() => {
+    loadFleet().catch(() => undefined);
+  }, [loadFleet]);
+
+  function openCreate() {
+    setEditing(null);
+    setForm(emptyModel);
+    setFormErrors({});
+    setDialogOpen(true);
+  }
+
+  function openEdit(model: ModelRow) {
+    setEditing(model);
+    // Al editar, divide /100 al poblar (el input trabaja en pesos): si no,
+    // cada edición infla o desinfla el precio 100×.
+    setForm({
+      name: model.name,
+      slug: model.slug,
+      category: model.category,
+      transmission: model.transmission,
+      seats: model.seats,
+      luggage: model.luggage,
+      dailyRate: model.dailyRateCents / 100,
+      photos: model.photos.join('\n'),
+      plates: '',
+    });
+    setFormErrors({});
+    setDialogOpen(true);
+  }
+
+  async function submitModel(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setFormErrors({});
+    try {
+      const candidate = {
+        slug: form.slug,
+        name: form.name,
+        category: form.category,
+        transmission: form.transmission,
+        seats: Number(form.seats),
+        luggage: Number(form.luggage),
+        // Convierte pesos → centavos ANTES de enviar (§2.13).
+        dailyRateCents: Math.round(Number(form.dailyRate) * 100),
+        photos: form.photos
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        units:
+          !editing && form.plates.trim()
+            ? form.plates
+                .split('\n')
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .map((plate) => ({ plate }))
+            : undefined,
+      };
+      const parsed = vehicleUpsertSchema.safeParse(candidate);
+      if (!parsed.success) {
+        const errors: Record<string, string> = {};
+        for (const issue of parsed.error.issues) {
+          if (!errors[issue.path[0]]) errors[issue.path[0]] = issue.message;
+        }
+        setFormErrors(errors);
+        return;
+      }
+      const res = await fetch(
+        editing ? `/api/admin/vehicles/${editing.id}` : '/api/admin/vehicles',
+        {
+          method: editing ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsed.data),
+        },
+      );
+      if (res.ok) {
+        toast.success(editing ? 'Modelo actualizado' : 'Modelo creado');
+        setDialogOpen(false);
+        await loadFleet();
+        return;
+      }
+      if (res.status === 401) {
+        window.location.href = '/admin/login';
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { error?: string; slug?: string; plate?: string };
+      if (data.error === 'duplicate_slug') {
+        setFormErrors({ slug: `El slug "${data.slug}" ya existe; cámbialo o edita ese modelo.` });
+      } else if (data.error === 'duplicate_plate') {
+        setFormErrors({ plates: `La placa "${data.plate}" ya existe.` });
+      } else {
+        toast.error('No se pudo guardar');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleActive(model: ModelRow) {
+    const res = await fetch(`/api/admin/vehicles/${model.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !model.active }),
+    });
+    if (res.ok) await loadFleet();
+  }
+
+  async function deleteModel() {
+    if (!deleteTarget) return;
+    const res = await fetch(`/api/admin/vehicles/${deleteTarget.id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ retireUnits }),
+    });
+    if (res.ok) {
+      toast.success('Modelo dado de baja (borrado lógico)');
+      setDeleteTarget(null);
+      await loadFleet();
+      return;
+    }
+    const data = (await res.json().catch(() => ({}))) as { error?: string; bookings?: unknown[] };
+    if (data.error === 'has_future_bookings') {
+      toast.error(
+        `Tiene ${data.bookings?.length ?? '?'} rentas futuras: reasígnalas o cancélalas primero.`,
+      );
+    } else {
+      toast.error('No se pudo dar de baja');
+    }
+  }
+
+  async function addUnit(modelId: number) {
+    const plate = (newPlates[modelId] ?? '').trim();
+    if (!plate) return;
+    const res = await fetch(`/api/admin/vehicles/${modelId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addUnits: [{ plate }] }),
+    });
+    if (res.ok) {
+      setNewPlates({ ...newPlates, [modelId]: '' });
+      await loadFleet();
+      return;
+    }
+    const data = (await res.json().catch(() => ({}))) as { plate?: string };
+    toast.error(data.plate ? `La placa ${data.plate} ya existe` : 'No se pudo agregar la unidad');
+  }
+
+  async function setUnitStatus(model: ModelRow, unit: UnitRow, status: UnitRow['status']) {
+    const res = await fetch(`/api/admin/vehicles/${model.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setUnitStatus: { unitId: unit.id, status } }),
+    });
+    if (res.ok) await loadFleet();
+  }
+
+  function toggleExpanded(id: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="space-y-6">
+      <Toaster />
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Los modelos inactivos dejan de cotizarse; el historial siempre se conserva.
+        </p>
+        <Button onClick={openCreate}>+ Nuevo modelo</Button>
+      </div>
+
+      <div className="rounded-xl border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8" />
+              <TableHead>Modelo</TableHead>
+              <TableHead>Categoría</TableHead>
+              <TableHead>Tarifa/día</TableHead>
+              <TableHead>Unidades</TableHead>
+              <TableHead>Activo</TableHead>
+              <TableHead>Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {models.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  Sin modelos. Crea el primero con “+ Nuevo modelo”.
+                </TableCell>
+              </TableRow>
+            )}
+            {models.map((model) => (
+              <Fragment key={model.id}>
+                <TableRow>
+                  <TableCell>
+                    <Button variant="ghost" size="sm" onClick={() => toggleExpanded(model.id)} aria-label="Unidades">
+                      {expanded.has(model.id) ? '▾' : '▸'}
+                    </Button>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-medium">{model.name}</span>
+                    <span className="block font-mono text-xs text-muted-foreground">/flota/{model.slug}</span>
+                  </TableCell>
+                  <TableCell className="capitalize">{model.category}</TableCell>
+                  <TableCell>{moneyFmt.format(model.dailyRateCents / 100)}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{model.units.length}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-[#0e7490]"
+                      checked={model.active}
+                      onChange={() => toggleActive(model)}
+                      aria-label={`Activo ${model.name}`}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="outline" onClick={() => openEdit(model)}>
+                        Editar
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(model)}>
+                        Eliminar
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+                {expanded.has(model.id) && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="bg-muted/30">
+                      <div className="space-y-2 pl-6">
+                        {model.units.length === 0 && (
+                          <p className="text-sm text-muted-foreground">Sin unidades registradas.</p>
+                        )}
+                        {model.units.map((unit) => (
+                          <div key={unit.id} className="flex max-w-md items-center gap-2">
+                            <span className="w-24 font-mono text-xs">{unit.plate}</span>
+                            <Select
+                              value={unit.status}
+                              onValueChange={(v) => setUnitStatus(model, unit, v as UnitRow['status'])}
+                            >
+                              <SelectTrigger className="h-8 w-40">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">Activa</SelectItem>
+                                <SelectItem value="maintenance">Taller</SelectItem>
+                                <SelectItem value="retired">Retirada</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ))}
+                        <div className="flex max-w-md items-center gap-2 pt-1">
+                          <Input
+                            placeholder="Nueva placa (ej. YXB-1236)"
+                            className="h-8"
+                            value={newPlates[model.id] ?? ''}
+                            onChange={(e) => setNewPlates({ ...newPlates, [model.id]: e.target.value })}
+                          />
+                          <Button size="sm" variant="outline" onClick={() => addUnit(model.id)}>
+                            Agregar
+                          </Button>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Alta / edición de modelo (mismo dialog; editing distingue) */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? `Editar ${editing.name}` : 'Nuevo modelo'}</DialogTitle>
+            <DialogDescription>
+              La tarifa se captura en pesos; el sistema la guarda en centavos.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitModel} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-name">Nombre</Label>
+                <Input
+                  id="fm-name"
+                  value={form.name}
+                  onBlur={() => !form.slug && setForm({ ...form, slug: slugify(form.name) })}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+                {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-slug">Slug (URL)</Label>
+                <Input id="fm-slug" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} />
+                {formErrors.slug && <p className="text-xs text-destructive">{formErrors.slug}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-category">Categoría</Label>
+                <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                  <SelectTrigger id="fm-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {{ small: 'Chico', compact: 'Compacto', medium: 'Mediano', large: 'Grande', van: 'Van', cargo: 'Carga' }[c] ?? c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {formErrors.category && <p className="text-xs text-destructive">{formErrors.category}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-transmission">Transmisión</Label>
+                <Select
+                  value={form.transmission}
+                  onValueChange={(v) => setForm({ ...form, transmission: v as 'automatic' | 'manual' })}
+                >
+                  <SelectTrigger id="fm-transmission">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="automatic">Automática</SelectItem>
+                    <SelectItem value="manual">Estándar</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-seats">Asientos</Label>
+                <Input
+                  id="fm-seats"
+                  type="number"
+                  min={1}
+                  max={15}
+                  value={form.seats}
+                  onChange={(e) => setForm({ ...form, seats: Number(e.target.value) })}
+                />
+                {formErrors.seats && <p className="text-xs text-destructive">{formErrors.seats}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-luggage">Maletas</Label>
+                <Input
+                  id="fm-luggage"
+                  type="number"
+                  min={0}
+                  value={form.luggage}
+                  onChange={(e) => setForm({ ...form, luggage: Number(e.target.value) })}
+                />
+                {formErrors.luggage && <p className="text-xs text-destructive">{formErrors.luggage}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-rate">Tarifa por día (MXN)</Label>
+                <Input
+                  id="fm-rate"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.dailyRate}
+                  onChange={(e) => setForm({ ...form, dailyRate: Number(e.target.value) })}
+                />
+                {formErrors.dailyRateCents && (
+                  <p className="text-xs text-destructive">{formErrors.dailyRateCents}</p>
+                )}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fm-photos">Fotos (una URL por línea)</Label>
+              <Textarea
+                id="fm-photos"
+                rows={3}
+                placeholder={'/images/fleet/march-1.jpg\n/images/fleet/march-2.jpg'}
+                value={form.photos}
+                onChange={(e) => setForm({ ...form, photos: e.target.value })}
+              />
+            </div>
+            {!editing && (
+              <div className="space-y-1.5">
+                <Label htmlFor="fm-plates">Placas iniciales (una por línea)</Label>
+                <Textarea
+                  id="fm-plates"
+                  rows={2}
+                  placeholder={'YXB-1234\nYXB-1235'}
+                  value={form.plates}
+                  onChange={(e) => setForm({ ...form, plates: e.target.value })}
+                />
+                {formErrors.plates && <p className="text-xs text-destructive">{formErrors.plates}</p>}
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Guardando…' : 'Guardar'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmación de baja lógica */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Dar de baja “{deleteTarget?.name}”?</DialogTitle>
+            <DialogDescription>
+              Dejará de cotizar y mostrarse en el catálogo; el historial de rentas se conserva
+              (borrado lógico). Las unidades pueden retirarse también.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-[#0e7490]"
+              checked={retireUnits}
+              onChange={(e) => setRetireUnits(e.target.checked)}
+            />
+            Retirar también sus unidades activas
+          </label>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Volver
+            </Button>
+            <Button variant="destructive" onClick={deleteModel}>
+              Dar de baja
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

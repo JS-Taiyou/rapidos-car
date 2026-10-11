@@ -1,51 +1,108 @@
 ---
-// ============================================================================
-// PÁGINA: Catálogo EN (/en/fleet) — SSR — ESPEJO de src/pages/flota/index.astro
-// ============================================================================
-// PROPÓSITO: mismo catálogo de modelos con tarifa "desde" que la versión ES,
-// para el público angloparlante. La guía completa (query a la BD, grid,
-// CarCard) está en src/pages/flota/index.astro — léela primero; aquí solo va
-// lo que cambia.
-//
-// Render: SSR (`export const prerender = false`), igual que la ES — tarifas
-// y disponibilidad se leen de la BD en cada request (ARCHITECTURE §2.2).
-//
-// DIFERENCIAS vs src/pages/flota/index.astro (lista exacta — todo lo demás
-// es idéntico):
-// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`; textos
-//    de UI desde las MISMAS claves de ui.ts (fleet.title, fleet.fromPrice,
-//    labels de filtros, botones). La traducción vive en ui.ts, no aquí.
-// 2. `alternateUrl="/flota"` (la ruta ES exacta); canonical → /en/fleet (lo
-//    arma el layout con la URL actual).
-// 3. La QUERY a la BD es IDÉNTICA: los datos de catálogo NO se traducen —
-//    nombre del modelo, transmisión, asientos, equipaje, fotos y tarifas son
-//    datos del negocio, no contenido editorial. Solo cambian los textos de UI.
-// 4. El link de cada CarCard va a `/en/fleet/${slug}`: resuélvelo con
-//    getLocalizedPath('fleet', 'en') + `/${model.slug}` (helper de
-//    src/i18n/utils.ts) en vez de concatenar strings a mano.
-// 5. Los imports relativos suben un nivel más: '../../../lib/db.ts', etc.
-//
-// ERRORES COMUNES DEL ESPEJO:
-// - alternateUrl apuntando a /en/fleet o mal escrito → rompe hreflang; aquí
-//   SIEMPRE es "/flota". Verifica el <link rel="alternate"> generado.
-// - Hardcodear textos en inglés en el template → la fuente única es ui.ts;
-//   un string suelto aquí se desincroniza del ES en la primera edición.
-// - Cambiar la estructura (grid, filtros, orden) solo en este idioma → las
-//   dos versiones deben diferir SOLO en textos de UI.
-// - Traducir slugs o paths de API → los endpoints /api/* NO tienen versión EN
-//   y los slugs de modelos son identificadores de BD; el idioma viaja en el
-//   body del request o en las props de las islas.
-// ============================================================================
+// Fleet EN (/en/fleet) — ESPEJO de src/pages/flota/index.astro (incluido el
+// filtro ?cat= por pills, cero JS). La QUERY es IDÉNTICA: los datos de
+// catálogo NO se traducen; solo cambian los textos de UI.
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import CarCard from '../../../components/CarCard.astro';
+import { sql } from '../../../lib/db';
+import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
+import { buildWhatsAppUrl } from '../../../lib/whatsapp';
+
+export const prerender = false;
+
+const t = useTranslations('en');
+
+const cat = Astro.url.searchParams.get('cat');
+const validCats = ['small', 'compact', 'medium', 'large', 'van', 'cargo'];
+const activeCat = cat && validCats.includes(cat) ? cat : null;
+
+const rows = await sql`
+  SELECT m.slug, m.name, m.category, m.transmission, m.seats,
+         m.luggage, m.daily_rate_cents, m.photos,
+         COUNT(v.id)::int AS active_units
+  FROM vehicle_models m
+  LEFT JOIN vehicles v ON v.model_id = m.id AND v.status = 'active'
+  WHERE m.active = true
+    AND (${activeCat}::text IS NULL OR m.category = ${activeCat})
+  GROUP BY m.id
+  ORDER BY m.daily_rate_cents ASC
+`;
+
+const models = rows.map((r) => ({
+  slug: r.slug as string,
+  name: r.name as string,
+  category: r.category as string,
+  transmission: r.transmission as string,
+  seats: Number(r.seats),
+  luggage: Number(r.luggage),
+  dailyRateCents: Number(r.daily_rate_cents),
+  photos: (r.photos as string[]) ?? [],
+}));
+
+const emptyWhatsapp = buildWhatsAppUrl(t('fleet.emptyCta'));
+const basePath = getLocalizedPath('/flota', 'en');
+const filterHrefs = (value: string) => (value ? `${basePath}?cat=${value}` : basePath);
 ---
 
-<!-- =========================================================================
-     TEMPLATE: idéntico al de src/pages/flota/index.astro. Cambian solo:
-     1. <BaseLayout lang="en" title={...} description={...}
-        alternateUrl="/flota">
-     2. Textos de UI con t('fleet.*') vía useTranslations('en')
-     3. href de cada CarCard → /en/fleet/[slug] (getLocalizedPath, punto 4 del
-        frontmatter)
-     El loop sobre los modelos, las clases del grid y el markup de CarCard se
-     copian tal cual de la guía ES — los datos (name, specs, tarifa) llegan
-     sin traducir desde la misma query.
-     ========================================================================== -->
+<BaseLayout lang="en" title={`${t('fleet.title')} — Rapidoz Car Rental`} description={t('fleet.description')} alternateUrl="/flota">
+  <section class="mx-auto max-w-6xl px-4 py-12">
+    <h1 class="text-3xl font-bold tracking-tight">{t('fleet.title')}</h1>
+    <p class="mt-2 text-muted-foreground">{t('fleet.subtitle')}</p>
+
+    <nav aria-label="Filter by size" class="mt-6 flex flex-wrap gap-2">
+      <a
+        href={filterHrefs('')}
+        class:list={[
+          'rounded-full border px-4 py-1.5 text-sm font-medium transition-colors',
+          activeCat === null
+            ? 'border-brand bg-brand text-white'
+            : 'bg-background text-muted-foreground hover:border-brand/40 hover:text-brand',
+        ]}
+        aria-current={activeCat === null ? 'true' : undefined}
+      >
+        {t('fleet.all')}
+      </a>
+      {
+        validCats.map((c) => (
+          <a
+            href={filterHrefs(c)}
+            class:list={[
+              'rounded-full border px-4 py-1.5 text-sm font-medium transition-colors',
+              activeCat === c
+                ? 'border-brand bg-brand text-white'
+                : 'bg-background text-muted-foreground hover:border-brand/40 hover:text-brand',
+            ]}
+            aria-current={activeCat === c ? 'true' : undefined}
+          >
+            {t(`fleet.category.${c}`)}
+          </a>
+        ))
+      }
+    </nav>
+
+    {
+      models.length === 0 ? (
+        <div class="mt-10 rounded-xl border bg-muted/30 p-10 text-center">
+          <p class="text-muted-foreground">{t('fleet.empty')}</p>
+          <a
+            href={emptyWhatsapp}
+            target="_blank"
+            rel="noopener"
+            class="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#25D366] px-5 py-2.5 font-semibold text-white"
+          >
+            WhatsApp
+          </a>
+        </div>
+      ) : (
+        <>
+          <div class="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {models.map((model) => (
+              <CarCard model={model} lang="en" />
+            ))}
+          </div>
+          <p class="mt-8 text-xs text-muted-foreground">{t('fleet.pricesNote')}</p>
+        </>
+      )
+    }
+  </section>
+</BaseLayout>

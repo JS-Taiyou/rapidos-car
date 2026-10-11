@@ -1,100 +1,159 @@
 ---
-// ============================================================================
-// PÁGINA: Admin — Dashboard (/admin) — SSR
-// ============================================================================
-// PROPÓSITO
-// ----------------------------------------------------------------------------
-// Responder "¿qué tengo que hacer HOY?": entregas y devoluciones del día con
-// los datos clave de cada renta, y la ocupación actual de la flota
-// (spec §4.1). Panel interno: solo español, SIN BaseLayout público.
+// Admin — Dashboard (/admin) — SSR, SIN isla: listas de solo-lectura, HTML
+// plano, cero JS (las mutaciones viven en /admin/reservaciones). "Hoy" se
+// calcula EN SQL con America/Merida (§2.13), nunca con new Date() servidor.
+import { requireAdmin } from '../../lib/auth';
+import { sql } from '../../lib/db';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import '../../styles/global.css';
 
-// export const prerender = false;   // descomenta al instalar el adapter — ARCHITECTURE §6
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * Render EN EL SERVIDOR, SIN isla React: las listas del día son de
-//   solo-lectura. HTML plano = cero JS, carga instantánea, nada que hidratar;
-//   el staff solo VE y navega — las acciones (cambiar estados, captura
-//   manual, bloqueos) viven en /admin/reservaciones.
-// * "Hoy" se calcula en zona America/Merida DENTRO del SQL (§2.13):
-//   (now() AT TIME ZONE 'America/Merida')::date. Nunca new Date() del
-//   servidor: su zona horaria no es la del negocio.
-// * meta robots noindex (CRÍTICO): herramienta interna; indexarse es pura superficie de ataque.
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. GUARDIA PRIMERO (ARCHITECTURE §2.3): `requireAdmin(Astro)` de
-//    '../../lib/auth.ts' como PRIMERA línea efectiva del frontmatter.
-//    Devuelve el admin (lo usas en el saludo con admin.email) o redirige a
-//    /admin/login; sin sesión, nada de lo siguiente se ejecuta.
-// 2. Importar el singleton `sql` de '../../lib/db.ts' y correr 3 queries:
-//    a. ENTREGAS DE HOY: SELECT b.code, b.customer_name, b.customer_phone,
-//       b.flight_number, b.pickup_zone, lower(b.period) AS start_at,
-//       v.plate, vm.name FROM bookings b JOIN vehicles v ON v.id =
-//       b.vehicle_id JOIN vehicle_models vm ON vm.id = v.model_id WHERE
-//       b.kind = 'rental' AND b.status IN ('confirmed','active') AND
-//       (lower(b.period) AT TIME ZONE 'America/Merida')::date = hoy
-//       ORDER BY lower(b.period). Los bloqueos (kind='block') no son
-//       entregas: se excluyen.
-//    b. DEVOLUCIONES DE HOY: idéntica pero con upper(b.period) en el filtro
-//       de fecha y en el ORDER BY — el rango es [inicio, fin), así que
-//       upper() es el momento exacto de devolución.
-//    c. OCUPACIÓN AHORA: una sola query con dos sub-selects — numerador =
-//       COUNT(DISTINCT vehicle_id) de bookings WHERE kind='rental' AND
-//       status IN ('confirmed','active') AND period @> now(); denominador =
-//       COUNT(*) de vehicles WHERE status='active' (unidades en taller o
-//       retiradas no son flota disponible).
-// 3. Importar '../../styles/global.css' (Tailwind v4) en el frontmatter.
-// 4. Template (shell mínimo propio, ver bloque inferior):
-//    a. <html lang="es">, <head> con charset, viewport,
-//       <meta name="robots" content="noindex, nofollow"> y
-//       <title>Panel — Rapidoz</title>.
-//    b. <nav> interno: links /admin, /admin/reservaciones, /admin/flota +
-//       botón "Salir". Este patrón se repite en las otras páginas admin: con
-//       3+, extráelo a src/components/admin/AdminNav.astro.
-//    c. Saludo "Hola, {admin.email}" y 3 tarjetas-resumen con números
-//       grandes (text-4xl): entregas hoy, devoluciones hoy, ocupación X/Y.
-//    d. Dos listas (entregas y devoluciones) ordenadas por hora con: hora,
-//       cliente, modelo/placa, zona y vuelo si hay — flight_number alimenta
-//       el seguimiento de vuelos de fase 2 (ARCHITECTURE §7). Estado vacío
-//       amable: "Sin entregas hoy".
-//    e. Barra de ocupación: div exterior bg-muted rounded y div interior
-//       bg-primary con style width = porcentaje calculado en el frontmatter.
-//    f. Botón "Salir": <form id="logout-form"> con el button, y un <script>
-//       inline de ~5 líneas: al submit, preventDefault, fetch('/api/auth',
-//       {method:'DELETE'}) y location.href='/admin/login'.
-//       Por qué script inline y no isla React: son 5 líneas sin estado;
-//       montar React para un solo fetch sería absurdo. Es la ÚNICA
-//       excepción de JS en esta página.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Consume: requireAdmin (../../lib/auth.ts), sql (../../lib/db.ts) y
-// DELETE /api/auth (botón salir). No expone nada.
-//
-// ----------------------------------------------------------------------------
-// ERRORES COMUNES
-// ----------------------------------------------------------------------------
-// * Olvidar AT TIME ZONE 'America/Merida': una entrega a las 7pm en Mérida
-//   es 01:00 UTC del día SIGUIENTE; comparando en UTC la mandas a "mañana"
-//   y el dashboard miente justo a la hora pico.
-// * Contar bloqueos como rentas en la ocupación: filtra kind='rental' en el
-//   numerador — un coche en taller no es una renta activa.
-// * Denominador con COUNT(*) de vehicles sin filtrar status='active': infla
-//   la flota y la ocupación sale artificialmente baja.
-// * Meter botones de acción aquí: las mutaciones van en /admin/reservaciones.
-// ============================================================================
+export const prerender = false;
+
+// GUARDIA PRIMERO (§2.3): sin sesión, nada de lo siguiente se ejecuta.
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+// Entregas de hoy (los bloqueos kind='block' no son entregas: se excluyen).
+const pickups = await sql`
+  SELECT b.code, b.customer_name, b.customer_phone, b.flight_number,
+         b.pickup_zone, lower(b.period) AS start_at,
+         v.plate, vm.name AS model_name
+  FROM bookings b
+  JOIN vehicles v ON v.id = b.vehicle_id
+  JOIN vehicle_models vm ON vm.id = v.model_id
+  WHERE b.kind = 'rental'
+    AND b.status IN ('confirmed','active')
+    AND (lower(b.period) AT TIME ZONE 'America/Merida')::date
+        = (now() AT TIME ZONE 'America/Merida')::date
+  ORDER BY lower(b.period)
+`;
+
+// Devoluciones de hoy: upper(period) es el momento exacto de devolución
+// (el rango es [inicio, fin)).
+const returns = await sql`
+  SELECT b.code, b.customer_name, b.customer_phone,
+         upper(b.period) AS end_at,
+         v.plate, vm.name AS model_name
+  FROM bookings b
+  JOIN vehicles v ON v.id = b.vehicle_id
+  JOIN vehicle_models vm ON vm.id = v.model_id
+  WHERE b.kind = 'rental'
+    AND b.status IN ('confirmed','active')
+    AND (upper(b.period) AT TIME ZONE 'America/Merida')::date
+        = (now() AT TIME ZONE 'America/Merida')::date
+  ORDER BY upper(b.period)
+`;
+
+// Ocupación ahora: numerador = rentas vigentes; denominador = unidades
+// activas (taller/retiradas no son flota disponible).
+const occupancyRows = await sql`
+  SELECT
+    (SELECT COUNT(DISTINCT vehicle_id) FROM bookings
+      WHERE kind = 'rental' AND status IN ('confirmed','active') AND period @> now()) AS busy,
+    (SELECT COUNT(*) FROM vehicles WHERE status = 'active') AS fleet
+`;
+const busy = Number(occupancyRows[0]?.busy ?? 0);
+const fleet = Number(occupancyRows[0]?.fleet ?? 0);
+const occupancyPct = fleet > 0 ? Math.round((busy / fleet) * 100) : 0;
+
+const timeFmt = new Intl.DateTimeFormat('es-MX', {
+  timeStyle: 'short',
+  timeZone: 'America/Merida',
+});
 ---
 
-<!-- =========================================================================
-     TEMPLATE del dashboard (shell mínimo propio):
-     1. <html lang="es"> + <head> con noindex y <title>Panel — Rapidoz</title>.
-     2. <nav> interno con links /admin, /admin/reservaciones, /admin/flota y
-        el <form id="logout-form"> con botón "Salir".
-     3. Saludo admin.email, 3 tarjetas-resumen, listas de entregas y
-        devoluciones (paso 2a/2b del frontmatter), barra de ocupación (4e).
-     4. Antes de </body>, el <script> inline del logout (paso 4f).
-     ========================================================================== -->
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Panel — Rapidoz</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-6xl space-y-8 px-4 py-8">
+      <p class="text-sm text-muted-foreground">Hola, <strong>{admin.email}</strong></p>
+
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Entregas hoy</p>
+          <p class="mt-1 text-4xl font-bold">{pickups.length}</p>
+        </div>
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Devoluciones hoy</p>
+          <p class="mt-1 text-4xl font-bold">{returns.length}</p>
+        </div>
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Ocupación</p>
+          <p class="mt-1 text-4xl font-bold">{busy}/{fleet}</p>
+        </div>
+      </div>
+
+      <div class="rounded-xl border bg-background p-5">
+        <div class="mb-2 flex items-center justify-between text-sm">
+          <span class="font-medium">Flota en renta ahora</span>
+          <span class="text-muted-foreground">{occupancyPct}%</span>
+        </div>
+        <div class="h-3 w-full overflow-hidden rounded-full bg-muted">
+          <div class="h-full rounded-full bg-brand" style={`width: ${occupancyPct}%`}></div>
+        </div>
+      </div>
+
+      <div class="grid gap-6 lg:grid-cols-2">
+        <section class="rounded-xl border bg-background">
+          <h2 class="border-b px-5 py-3 font-semibold">Entregas de hoy</h2>
+          {
+            pickups.length === 0 ? (
+              <p class="px-5 py-8 text-center text-sm text-muted-foreground">Sin entregas hoy.</p>
+            ) : (
+              <ul class="divide-y text-sm">
+                {pickups.map((b) => (
+                  <li class="flex items-start justify-between gap-3 px-5 py-3">
+                    <div>
+                      <p class="font-medium">
+                        {b.customer_name}
+                        <span class="ml-2 font-mono text-xs text-muted-foreground">{b.code}</span>
+                      </p>
+                      <p class="text-xs text-muted-foreground">
+                        {b.model_name} · {b.plate} · {b.pickup_zone}
+                        {b.flight_number ? ` · ✈ ${b.flight_number}` : ''}
+                      </p>
+                    </div>
+                    <span class="shrink-0 font-mono text-xs">{timeFmt.format(new Date(b.start_at))}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </section>
+
+        <section class="rounded-xl border bg-background">
+          <h2 class="border-b px-5 py-3 font-semibold">Devoluciones de hoy</h2>
+          {
+            returns.length === 0 ? (
+              <p class="px-5 py-8 text-center text-sm text-muted-foreground">Sin devoluciones hoy.</p>
+            ) : (
+              <ul class="divide-y text-sm">
+                {returns.map((b) => (
+                  <li class="flex items-start justify-between gap-3 px-5 py-3">
+                    <div>
+                      <p class="font-medium">
+                        {b.customer_name}
+                        <span class="ml-2 font-mono text-xs text-muted-foreground">{b.code}</span>
+                      </p>
+                      <p class="text-xs text-muted-foreground">
+                        {b.model_name} · {b.plate}
+                      </p>
+                    </div>
+                    <span class="shrink-0 font-mono text-xs">{timeFmt.format(new Date(b.end_at))}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

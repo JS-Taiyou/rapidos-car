@@ -1,70 +1,87 @@
 ---
-// ============================================================================
-// COMPONENTE: Footer — pie del sitio público
-// ============================================================================
-// PROPÓSITO: cerrar cada página con los datos del negocio (contacto,
-// horario, dirección), links secundarios y créditos. Lo monta BaseLayout;
-// las páginas no lo importan directamente.
-//
-// ----------------------------------------------------------------------------
-// DECISIONES
-// ----------------------------------------------------------------------------
-// * CERO JavaScript: el footer es contenido, no interacción (§2.1). Sus
-//   "acciones" son anchors con protocolos nativos: tel:, mailto: y wa.me.
-// * Repetir teléfono y dirección VISIBLES aquí aunque ya estén en /contacto:
-//   el schema LocalBusiness del layout se valida contra contenido visible;
-//   teléfono/dirección presentes en TODAS las páginas refuerzan el SEO
-//   local (spec §6). Opcional: envolver el bloque de dirección con
-//   microdatos (itemscope/itemtype LocalBusiness) como refuerzo al JSON-LD.
-// * NAP consistente (Name-Address-Phone): el teléfono/dirección de aquí
-//   deben ser IDÉNTICOS a los de /contacto y al JSON-LD del layout —
-//   Google desconfía de negocios con datos que difieren entre páginas.
-// * Todo el texto vía t(): el espejo EN monta este mismo archivo con
-//   lang="en".
-//
-// ----------------------------------------------------------------------------
-// PASOS
-// ----------------------------------------------------------------------------
-// 1. Props: interface Props { lang: Lang }; obtener `t` con
-//    useTranslations(lang) e importar getLocalizedPath de '../i18n/utils' y
-//    buildWhatsAppUrl de '../lib/whatsapp'.
-// 2. Estructura en 3-4 columnas (grid, apiladas en mobile):
-//    a. MARCA: logo (el mismo SVG del Header — si lo repites una tercera
-//       vez, extráelo a Logo.astro) + tagline t('footer.tagline').
-//    b. CONTACTO: teléfono con <a href="tel:+5219990000000"> (href sin
-//       espacios, texto formateado para humanos), WhatsApp con
-//       buildWhatsAppUrl(t('footer.whatsappMessage')), email con mailto:,
-//       horario t('footer.hours'). Datos reales del negocio (mismo teléfono
-//       que irá en el JSON-LD del layout).
-//    c. NAVEGACIÓN: links secundarios desde un array {key, path} como el
-//       del Header. El footer suele incluir también /reservar; si la lista
-//       difiere de la del Header, declara la suya propia y documéntalo —
-//       no la "reutilices" forzada.
-//    d. DIRECCIÓN: calle, colonia, Mérida, Yucatán, MX + link "cómo llegar"
-//       a la URL pública de Google Maps. SIN iframe aquí: el mapa pesado va
-//       solo en /ubicaciones y /contacto (no cargarlo en todas las páginas).
-// 3. Barra inferior: © año + t('footer.rights') + créditos. El año con
-//    new Date().getFullYear() en el frontmatter — lo único "dinámico" y es
-//    gratis en build/SSR.
-//
-// ----------------------------------------------------------------------------
-// CONTRATO
-// ----------------------------------------------------------------------------
-// Props: { lang: Lang }. Consume: useTranslations, getLocalizedPath,
-// buildWhatsAppUrl. Sin slots, sin JS. Lo monta BaseLayout.
-//
-// ERRORES COMUNES
-// - Teléfonos distintos entre footer, contacto y JSON-LD → NAP roto y baja
-//   el ranking local.
-// - Iframe de Maps en el footer → carga pesada en TODAS las páginas.
-// - Texto hardcodeado → rompe el espejo EN.
-// - Lista de links duplicada del Header a mano → se desincroniza; declara
-//   arrays separados solo si el contenido realmente difiere.
-// ============================================================================
+// Pie del sitio: NAP idéntico a /contacto y al JSON-LD (fuente única
+// business.ts). CERO JavaScript: anchors tel:/mailto:/wa.me.
+import { useTranslations, getLocalizedPath, type Lang } from '../i18n/utils';
+import { buildWhatsAppUrl } from '../lib/whatsapp';
+import { business } from '../lib/business';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const t = useTranslations(lang);
+
+const navItems = [
+  { key: 'nav.home', path: '/' },
+  { key: 'nav.fleet', path: '/flota' },
+  { key: 'nav.book', path: '/reservar' },
+  { key: 'nav.locations', path: '/ubicaciones' },
+  { key: 'nav.faq', path: '/faq' },
+  { key: 'nav.contact', path: '/contacto' },
+];
+
+const year = new Date().getFullYear();
+const whatsappUrl = buildWhatsAppUrl(t('footer.whatsappMessage'));
 ---
 
-<!-- =========================================================================
-     TEMPLATE: <footer> con fondo oscuro, grid de columnas a–d (marca,
-     contacto, navegación, dirección) y barra inferior de copyright.
-     Anchors tel:/mailto:/wa.me; ningún botón con JS.
-     ========================================================================== -->
+<footer class="border-t border-border bg-muted/40">
+  <div class="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
+    <div>
+      <p class="flex items-center gap-2 text-lg font-bold">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
+        </svg>
+        Rapidoz
+      </p>
+      <p class="mt-3 text-sm text-muted-foreground">{t('footer.tagline')}</p>
+    </div>
+
+    <div>
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t('footer.contactTitle')}</h2>
+      <ul class="mt-3 space-y-2 text-sm">
+        <li>
+          <a class="hover:text-brand" href={`tel:${business.phone}`}>{business.phoneDisplay}</a>
+        </li>
+        <li>
+          <a class="hover:text-brand" href={`mailto:${business.email}`}>{business.email}</a>
+        </li>
+        <li>
+          <a class="hover:text-brand" href={whatsappUrl} target="_blank" rel="noopener">WhatsApp</a>
+        </li>
+        <li class="text-muted-foreground">{t('footer.hours')}</li>
+      </ul>
+    </div>
+
+    <nav aria-label={t('footer.navTitle')}>
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t('footer.navTitle')}</h2>
+      <ul class="mt-3 space-y-2 text-sm">
+        {
+          navItems.map((item) => (
+            <li>
+              <a class="hover:text-brand" href={getLocalizedPath(item.path, lang)}>
+                {t(item.key)}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div>
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t('footer.addressTitle')}</h2>
+      <address class="mt-3 space-y-2 text-sm not-italic">
+        <p>{business.addressDisplay}</p>
+        <a class="text-brand hover:underline" href={business.mapsUrl} target="_blank" rel="noopener">
+          {lang === 'es' ? 'Cómo llegar' : 'Getting here'} →
+        </a>
+      </address>
+    </div>
+  </div>
+
+  <div class="border-t border-border/60 py-4">
+    <p class="mx-auto max-w-6xl px-4 text-center text-xs text-muted-foreground">
+      © {year} {business.name}. {t('footer.rights')} · {t('footer.madeIn')}
+    </p>
+  </div>
+</footer>

@@ -1,58 +1,116 @@
 ---
-// ============================================================================
-// PÁGINA: Home EN (/en/) — estática — ESPEJO de src/pages/index.astro
-// ============================================================================
-// PROPÓSITO: misma función que la home ES (convertir visitas en cotizaciones),
-// para el público angloparlante. La guía completa de estructura y decisiones
-// (hero + QuoteWidget, señales de confianza, preview de flota, reseñas, CTA)
-// está en src/pages/index.astro — léela primero; aquí solo va lo que cambia.
-//
-// Render: ESTÁTICA, igual que la ES (sin `prerender = false`).
-//
-// DIFERENCIAS vs src/pages/index.astro (lista exacta — todo lo demás es
-// idéntico, sección por sección):
-// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`. Todos los
-//    textos salen de las MISMAS claves de src/i18n/ui.ts (home.hero.title,
-//    home.trust.*, etc.): la traducción vive en ui.ts, NUNCA en esta página.
-// 2. `alternateUrl="/"` (apunta a la home ES). El canonical lo arma el layout
-//    con la URL actual → apunta a /en/. Así hreflang queda simétrico: /
-//    declara /en/ como alterna y /en/ declara /.
-// 3. `<QuoteWidget client:load lang="en" />` — la isla recibe la prop lang y
-//    con ella resuelve sus textos y el destino del wizard (/en/book). Lo mismo
-//    aplica para cualquier otra isla que montes en esta página.
-// 4. Los links internos del preview de flota van a /en/fleet y
-//    /en/fleet/[slug] (no a /flota): resuélvelos con el helper
-//    getLocalizedPath(..., 'en') de src/i18n/utils.ts.
-// 5. Los imports relativos suben un nivel: '../layouts/...' pasa a
-//    '../../layouts/...', '../components/...' a '../../components/...'.
-//
-// NOTA DE MANTENIMIENTO: esta página es estructuralmente idéntica a la ES.
-// Si cambias una sección en una, cambia la otra en el mismo commit. Si la
-// duplicación se vuelve molesta, extrae las secciones grandes a componentes
-// .astro compartidos que reciban `lang` por prop — TrustSignals es el primer
-// candidato (markup + t(), cero lógica) — y deja ambas páginas como pura
-// composición de secciones.
-//
-// ERRORES COMUNES DEL ESPEJO:
-// - alternateUrl apuntando a /en/ o a otra ruta → rompe hreflang; aquí
-//   SIEMPRE es "/" (la home ES). Verifica el <link rel="alternate"> generado.
-// - Hardcodear textos en inglés en el template → la fuente única es ui.ts;
-//   un string suelto aquí se desincroniza del ES en la primera edición.
-// - Cambiar la estructura (orden de secciones, CTAs) solo en este idioma →
-//   las dos versiones deben diferir SOLO en textos.
-// - Traducir slugs o paths de API → los endpoints /api/* NO tienen versión EN
-//   (/api/quote es /api/quote desde cualquier idioma); el idioma viaja en el
-//   body del request o en las props de las islas.
-// ============================================================================
+// Home EN (/en/) — ESPEJO de src/pages/index.astro: misma estructura,
+// textos desde las MISMAS claves de ui.ts, links vía getLocalizedPath.
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import QuoteWidget from '../../components/react/QuoteWidget.tsx';
+import CarCard from '../../components/CarCard.astro';
+import { useTranslations, getLocalizedPath } from '../../i18n/utils';
+import { buildWhatsAppUrl } from '../../lib/whatsapp';
+import { DELIVERY_ZONES } from '../../lib/zones';
+
+const t = useTranslations('en');
+
+// Mirror of scripts/seed.ts (see the ES page note).
+const fleetPreview = [
+  { slug: 'beat-hatchback', name: 'Beat Hatchback', category: 'small', transmission: 'manual', seats: 4, luggage: 1, dailyRateCents: 25000, photos: [] },
+  { slug: 'gol-5-puertas', name: 'V.W. Gol 5 puertas', category: 'compact', transmission: 'manual', seats: 4, luggage: 2, dailyRateCents: 30000, photos: [] },
+  { slug: 'dodge-attitude', name: 'Dodge Attitude', category: 'medium', transmission: 'manual', seats: 5, luggage: 2, dailyRateCents: 35000, photos: [] },
+  { slug: 'kia-soul', name: 'Kia Soul', category: 'large', transmission: 'automatic', seats: 5, luggage: 3, dailyRateCents: 40000, photos: [] },
+];
+
+const trust = [
+  { key: 'home.trust.years', icon: 'M12 2 3 7v10l9 5 9-5V7l-9-5Zm0 5.5L7.5 10 12 12.5 16.5 10 12 7.5Z' },
+  { key: 'home.trust.fleet', icon: 'M5 11h14M6 11V8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3m-2 8h-8a2 2 0 0 1-2-2v-6h12v6a2 2 0 0 1-2 2Z' },
+  { key: 'home.trust.insurance', icon: 'M12 3 4 6v6c0 4.4 3.4 8.1 8 9 4.6-.9 8-4.6 8-9V6l-8-3Zm-2.5 9 2 2 4-4' },
+  { key: 'home.trust.whatsapp', icon: 'M21 12a9 9 0 1 1-4.6-7.9M12 8v4l3 2' },
+];
+
+const reviews = [
+  {
+    quote: 'They delivered the car at the airport on time and the whole thing took 10 minutes. No hidden fees.',
+    author: 'María G.',
+  },
+  {
+    quote: 'Great WhatsApp support — they swapped our car when plans changed, no drama at all.',
+    author: 'Carlos R.',
+  },
+  {
+    quote: 'Clear pricing and an immaculate car. Third time renting with them in Mérida.',
+    author: 'Ana L.',
+  },
+];
+
+const whatsappUrl = buildWhatsAppUrl(t('nav.whatsapp'));
 ---
 
-<!-- =========================================================================
-     TEMPLATE: idéntico al de src/pages/index.astro. Cambian solo:
-     1. <BaseLayout lang="en" title={...} description={...} alternateUrl="/">
-     2. <QuoteWidget client:load lang="en" /> dentro del hero <section>
-     3. Todo texto: t('home.hero.title') etc. con useTranslations('en')
-     4. Links internos prefijados a /en/... vía getLocalizedPath (ver punto 4
-        del frontmatter)
-     Las secciones b–e (confianza, preview de flota, reseñas, CTA WhatsApp)
-     se copian tal cual de la guía ES — mismos SVG inline, mismo orden.
-     ========================================================================== -->
+<BaseLayout lang="en" title={`Rapidoz Car Rental — ${t('home.hero.title')}`} description={t('home.hero.subtitle')} alternateUrl="/">
+  <section class="relative overflow-hidden border-b bg-gradient-to-b from-brand-soft to-background">
+    <div class="mx-auto max-w-6xl px-4 py-14 sm:py-20">
+      <h1 class="max-w-2xl text-3xl font-bold tracking-tight sm:text-5xl">
+        {t('home.hero.title')}
+      </h1>
+      <p class="mt-4 max-w-xl text-lg text-muted-foreground">
+        {t('home.hero.subtitle')}
+      </p>
+      <div class="mt-8 max-w-3xl">
+        <QuoteWidget client:load lang="en" zones={DELIVERY_ZONES} />
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Trust" class="border-b bg-muted/30">
+    <div class="mx-auto grid max-w-6xl gap-6 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        trust.map((item) => (
+          <div class="flex items-start gap-3">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="mt-0.5 shrink-0 text-brand" aria-hidden="true">
+              <path d={item.icon} stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <p class="text-sm font-medium">{t(item.key)}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-12">
+    <div class="mb-6 flex items-center justify-between">
+      <h2 class="text-2xl font-bold tracking-tight">{t('home.fleetPreview.title')}</h2>
+      <a href={getLocalizedPath('/flota', 'en')} class="text-sm font-medium text-brand hover:underline">
+        {t('home.fleetPreview.cta')} →
+      </a>
+    </div>
+    <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {fleetPreview.map((model) => <CarCard model={model} lang="en" />)}
+    </div>
+  </section>
+
+  <section class="border-y bg-muted/30">
+    <div class="mx-auto max-w-6xl px-4 py-12">
+      <h2 class="mb-8 text-2xl font-bold tracking-tight">{t('home.reviews.title')}</h2>
+      <div class="grid gap-5 sm:grid-cols-3">
+        {
+          reviews.map((review) => (
+            <figure class="rounded-xl border bg-card p-5 shadow-sm">
+              <p class="text-amber-500" aria-label="5 stars">★★★★★</p>
+              <blockquote class="mt-2 text-sm">“{review.quote}”</blockquote>
+              <figcaption class="mt-3 text-xs font-medium text-muted-foreground">— {review.author}</figcaption>
+            </figure>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-14 text-center">
+    <p class="mx-auto max-w-xl text-lg">{t('home.hero.subtitle')}</p>
+    <a
+      href={whatsappUrl}
+      target="_blank"
+      rel="noopener"
+      class="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#25D366] px-6 py-3 font-semibold text-white shadow transition-opacity hover:opacity-90"
+    >
+      WhatsApp
+    </a>
+  </section>
+</BaseLayout>

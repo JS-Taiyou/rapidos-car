@@ -1,51 +1,90 @@
 ---
-// ============================================================================
-// PÁGINA: Contacto EN (/en/contact) — estática — ESPEJO de
-// src/pages/contacto.astro
-// ============================================================================
-// PROPÓSITO: los mismos canales de contacto (WhatsApp, teléfono, mapa) para
-// el público angloparlante. La guía completa (tarjetas de canal, mapa
-// embebido, horarios) está en src/pages/contacto.astro — léela primero; aquí
-// solo va lo que cambia.
-//
-// Render: ESTÁTICA, igual que la ES.
-//
-// DIFERENCIAS vs src/pages/contacto.astro (lista exacta — todo lo demás es
-// idéntico):
-// 1. `BaseLayout` recibe lang="en" y se usa `useTranslations('en')`;
-//    `alternateUrl="/contacto"`; canonical → /en/contact.
-// 2. El mensaje pre-llenado de WhatsApp va en inglés: "Hi, I'd like a quote
-//    for a rental" (clave contact.whatsapp.prefill en ui.ts — el helper
-//    buildWhatsAppUrl de src/lib/whatsapp.ts recibe el texto YA traducido;
-//    él no traduce). El número de WhatsApp es el mismo en ambos idiomas.
-// 3. Teléfono, email, dirección y mapa embebido son DATOS: idénticos en
-//    ambos idiomas. No los dupliques "traduciéndolos" — una sola fuente
-//    (settings o constantes compartidas que ambas páginas importan).
-// 4. Los imports relativos suben un nivel: '../../layouts/...',
-//    '../../lib/whatsapp.ts', etc.
-//
-// ERRORES COMUNES DEL ESPEJO:
-// - alternateUrl apuntando a /en/contact o / → rompe hreflang; aquí SIEMPRE
-//   es "/contacto". Verifica el <link rel="alternate"> generado.
-// - Hardcodear textos en inglés en el template (etiquetas, horarios, el
-//   mensaje de WhatsApp) → la fuente única es ui.ts; un string suelto se
-//   desincroniza del ES en la primera edición.
-// - Cambiar la estructura (qué canales y en qué orden) solo en este idioma →
-//   las dos versiones deben diferir SOLO en textos.
-// - Duplicar el teléfono/email "para la versión EN" → son datos únicos del
-//   negocio; si cambian, se actualizan en UN lugar (punto 3 del frontmatter).
-// - Traducir paths de API → los endpoints /api/* NO tienen versión EN; el
-//   idioma viaja en el body del request o en las props de las islas.
-// ============================================================================
+// Contact EN (/en/contact) — ESPEJO de src/pages/contacto.astro. El mensaje
+// prellenado de WhatsApp va en inglés (el helper no traduce: recibe el
+// texto YA traducido). Teléfono/dirección/mapa son datos idénticos.
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { useTranslations, getLocalizedPath } from '../../i18n/utils';
+import { buildWhatsAppUrl } from '../../lib/whatsapp';
+import { business } from '../../lib/business';
+
+const t = useTranslations('en');
+const whatsappUrl = buildWhatsAppUrl(t('contact.whatsappMessage'));
 ---
 
-<!-- =========================================================================
-     TEMPLATE: idéntico al de src/pages/contacto.astro. Cambian solo:
-     1. <BaseLayout lang="en" title={...} description={...}
-        alternateUrl="/contacto">
-     2. Textos de UI con t('contact.*') vía useTranslations('en')
-     3. Botón WhatsApp: buildWhatsAppUrl(t('contact.whatsapp.prefill')) con
-        el mensaje en inglés (punto 2 del frontmatter)
-     Teléfono, email, dirección y mapa se renderizan idénticos — son datos,
-     no contenido editorial.
-     ========================================================================== -->
+<BaseLayout lang="en" title={`${t('contact.title')} — Rapidoz Car Rental`} description={t('contact.intro')} alternateUrl="/contacto">
+  <section class="mx-auto max-w-5xl px-4 py-12">
+    <h1 class="text-3xl font-bold tracking-tight">{t('contact.title')}</h1>
+    <p class="mt-2 text-muted-foreground">{t('contact.intro')}</p>
+
+    <div class="mt-10 grid gap-8 lg:grid-cols-2">
+      <div class="space-y-4">
+        <a
+          href={whatsappUrl}
+          target="_blank"
+          rel="noopener"
+          class="flex items-center gap-4 rounded-xl border border-[#25D366] bg-[#25D366]/5 p-5 transition-colors hover:bg-[#25D366]/10"
+        >
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="#25D366" aria-hidden="true">
+            <path
+              d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1a10 10 0 0 1-4-2.6 9.3 9.3 0 0 1-1.9-3c-.2-.6-.1-1.2.1-1.6.2-.4.6-.9 1-1.1.2-.1.5-.1.7 0 .2.1.4.2.5.5l.7 1.5c.1.2.1.4 0 .6l-.4.6c-.1.2-.2.3-.1.5.4.8 1.6 2.2 3 2.8.2.1.4 0 .5-.1l.6-.6c.2-.2.4-.2.6-.1l1.5.8c.2.1.4.3.4.5.1.2 0 .5-.1.7Z"
+            ></path>
+          </svg>
+          <span>
+            <span class="block text-lg font-semibold">{t('contact.whatsappCta')}</span>
+            <span class="block text-sm text-muted-foreground">{business.phoneDisplay}</span>
+          </span>
+        </a>
+
+        <div class="rounded-xl border p-5 text-sm">
+          <dl class="space-y-3">
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted-foreground">{t('contact.phone')}</dt>
+              <dd><a class="font-medium hover:text-brand" href={`tel:${business.phone}`}>{business.phoneDisplay}</a></dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted-foreground">{t('contact.email')}</dt>
+              <dd><a class="font-medium hover:text-brand" href={`mailto:${business.email}`}>{business.email}</a></dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted-foreground">{t('contact.hours')}</dt>
+              <dd class="text-right">
+                Mon–Sat, 8:00 – 20:00<br />
+                Sun, 9:00 – 15:00
+                <span class="block text-xs text-muted-foreground">{t('contact.hoursNote')}</span>
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <a href={getLocalizedPath('/reservar', 'en')} class="inline-block text-sm font-medium text-brand hover:underline">
+          {t('contact.quoteCta')} →
+        </a>
+      </div>
+
+      <div class="space-y-3">
+        <address class="rounded-xl border p-5 text-sm not-italic">
+          <p class="font-semibold">{t('contact.addressLabel')}</p>
+          <p class="mt-1 text-muted-foreground">{business.addressDisplay}</p>
+          <a
+            class="mt-2 inline-block text-sm font-medium text-brand hover:underline"
+            href={business.mapsUrl}
+            target="_blank"
+            rel="noopener"
+          >
+            {t('contact.mapCta')} →
+          </a>
+        </address>
+        <div class="overflow-hidden rounded-xl border">
+          <iframe
+            title={t('contact.mapTitle')}
+            src="https://www.google.com/maps?q=Calle%2060%20Nte%20339%20Centro%20M%C3%A9rida&output=embed"
+            width="100%"
+            height="320"
+            loading="lazy"
+            referrerpolicy="no-referrer-when-downgrade"
+          ></iframe>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
