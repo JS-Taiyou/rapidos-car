@@ -76,38 +76,36 @@ const customers = rows.map((r) => ({
               Sin clientes aún — se crean solos con la primera reservación.
             </p>
           ) : (
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th class="px-5 py-2">Cliente</th>
-                    <th class="px-3 py-2">CURP</th>
-                    <th class="px-3 py-2">Contacto</th>
-                    <th class="px-3 py-2">Rentas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {customers.map((c) => (
-                    <tr class="cursor-pointer border-b transition-colors last:border-0 hover:bg-accent/50">
-                      <td class="px-5 py-2.5" colspan="4">
-                        <a href={`/admin/clientes/${c.id}`} class="flex items-center justify-between gap-3">
-                          <span class="font-medium">
-                            {c.name}
-                            {c.noShow && (
-                              <span class="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">
-                                NO-SHOW
-                              </span>
-                            )}
-                          </span>
-                          <span class="font-mono text-xs text-muted-foreground">{c.curp ?? 'sin CURP'}</span>
-                          <span class="text-muted-foreground">{c.email ?? c.phone ?? '—'}</span>
-                          <span class="font-semibold tabular-nums">{c.rentals}</span>
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              {/* Header y filas comparten el MISMO grid → columnas alineadas
+                  (la tabla anterior tenía el cuerpo en colspan y nunca
+                  alineaba con los headers). Todo alineado a la izquierda. */}
+              <div class="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_4rem] gap-3 border-b px-5 py-2 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <span>Cliente</span>
+                <span>CURP</span>
+                <span>Contacto</span>
+                <span>Rentas</span>
+              </div>
+              {customers.map((c) => (
+                <a
+                  href={`/admin/clientes/${c.id}`}
+                  class="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_4rem] items-center gap-3 border-b px-5 py-2.5 text-left text-sm transition-colors last:border-0 hover:bg-accent/50"
+                >
+                  <span class="min-w-0">
+                    <span class="font-medium">
+                      {c.name}
+                      {c.noShow && (
+                        <span class="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">
+                          NO-SHOW
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <span class="truncate font-mono text-xs text-muted-foreground">{c.curp ?? 'sin CURP'}</span>
+                  <span class="truncate text-muted-foreground">{c.email ?? c.phone ?? '—'}</span>
+                  <span class="font-semibold tabular-nums">{c.rentals}</span>
+                </a>
+              ))}
             </div>
           )
         }

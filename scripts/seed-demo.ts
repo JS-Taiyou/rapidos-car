@@ -34,7 +34,7 @@ async function main() {
     const r = await sql`SELECT m.id, m.slug, m.name, m.daily_rate_cents, v.id AS unit_id
                         FROM vehicle_models m JOIN vehicles v ON v.model_id = m.id
                         WHERE m.slug = ${slug} ORDER BY v.id LIMIT 1`;
-    return r[0];
+    return r[0] as { unit_id: number };
   };
 
   const code = () => {
@@ -43,10 +43,10 @@ async function main() {
     return 'RPZ-' + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
   };
 
-  const insert = async (m: { unit_id: number }, opts: {
+  const insert = async (m: { unit_id: number | string }, opts: {
     status: string; start: Date; end: Date; name: string; email: string; phone: string;
     total: number; zone: string; kind?: string; notes?: string | null; flight?: string | null;
-    requested?: unknown; pricing?: unknown;
+    requested?: Record<string, unknown>; pricing?: Record<string, unknown>;
   }) => {
     await sql`
       INSERT INTO bookings
@@ -54,12 +54,13 @@ async function main() {
          flight_number, period, pickup_zone, extras, total_cents, deposit_type,
          status, notes, requested, pricing)
       VALUES
-        (${code()}, ${opts.kind ?? 'rental'}, ${m.unit_id}, ${opts.name}, ${opts.email},
+        (${code()}, ${opts.kind ?? 'rental'}, ${Number(m.unit_id)}, ${opts.name}, ${opts.email},
          ${opts.phone}, ${opts.flight ?? null},
          tstzrange(${opts.start}::timestamptz, ${opts.end}::timestamptz, '[)'),
          ${opts.zone}, '[]'::jsonb, ${opts.total}, ${Math.random() > 0.5 ? 'deposit' : 'on_pickup'},
          ${opts.status}, ${opts.notes ?? null},
-         ${sql.json(opts.requested ?? {})}::jsonb, ${sql.json(opts.pricing ?? {})}::jsonb)
+         ${sql.json(JSON.parse(JSON.stringify(opts.requested ?? {})))}::jsonb,
+         ${sql.json(JSON.parse(JSON.stringify(opts.pricing ?? {})))}::jsonb)
     `;
   };
 
