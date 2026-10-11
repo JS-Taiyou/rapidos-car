@@ -17,6 +17,7 @@ import {
 } from '../../lib/pricing';
 import { bookingInputSchema, generateBookingCode } from '../../lib/validation';
 import { buildWhatsAppUrl, bookingConfirmationMessage } from '../../lib/whatsapp';
+import { broadcastNewBooking } from '../../lib/alerts';
 
 export const prerender = false;
 
@@ -194,7 +195,7 @@ export async function POST(context: APIContext): Promise<Response> {
             discount: { kind: 'none' },
             source: 'engine',
           });
-          await sql`
+          const rows2 = await sql`
             INSERT INTO bookings
               (code, kind, vehicle_id, customer_name, customer_email,
                customer_phone, flight_number, period, pickup_zone, extras,
@@ -207,7 +208,18 @@ export async function POST(context: APIContext): Promise<Response> {
                ${pickupZone}, ${sql.json(snapshot)}::jsonb, ${quote.totalCents},
                ${depositType}, 'quoted', ${sql.json(pricingJson(pricing))}::jsonb,
                ${sql.json(lead)}::jsonb, 'Lead web: sin disponibilidad al intentar reservar')
+            RETURNING id, code
           `;
+          broadcastNewBooking({
+            id: Number(rows2[0].id),
+            code: rows2[0].code as string,
+            kind: 'lead',
+            modelName: model.name,
+            customerName: customer.name,
+            start: start.toISOString(),
+            end: end.toISOString(),
+            totalCents: quote.totalCents,
+          });
         }
       } catch (leadErr) {
         console.error('No se pudo capturar el lead del 409:', leadErr);
@@ -217,6 +229,18 @@ export async function POST(context: APIContext): Promise<Response> {
 
     // La renta web nace 'confirmed': los 'quoted' no apartan inventario.
     const { booking, modelName } = result;
+
+    // Push en vivo a las pestañas del staff conectadas (globito + beep).
+    broadcastNewBooking({
+      id: booking.id,
+      code: booking.code,
+      kind: 'rental',
+      modelName,
+      customerName: customer.name,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      totalCents: booking.quote.totalCents,
+    });
     const message = bookingConfirmationMessage(
       {
         code: booking.code,

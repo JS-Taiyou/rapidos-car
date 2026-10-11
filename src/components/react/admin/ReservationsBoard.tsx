@@ -6,7 +6,7 @@
 // manualBookingSchema.safeParse al enviar (mismo contrato zod que el
 // endpoint, §2.12) en lugar de react-hook-form: el schema anida customer
 // opcional con refines por kind y el binding manual es más claro aquí.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Textarea } from '../../ui/textarea';
@@ -237,6 +237,21 @@ export default function ReservationsBoard() {
     return () => ac.abort();
   }, [loadBookings]);
 
+  // Deep-link ?code=RPZ-XXXXXX (globito de alerta): abre el diálogo de ESA
+  // reserva al aterrizar. Espera a bookings + catálogo de extras; corre una
+  // sola vez y limpia la URL.
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (openedRef.current) return;
+    const code = new URLSearchParams(window.location.search).get('code');
+    if (!code || bookings.length === 0 || extrasCatalog.length === 0) return;
+    const target = bookings.find((b) => b.code === code);
+    if (!target) return;
+    openedRef.current = true;
+    window.history.replaceState(null, '', '/admin/reservaciones');
+    openEdit(target);
+  }, [bookings, extrasCatalog]);
+
   // Catálogo de extras (precios BASE del catálogo; el precio final por
   // reserva es editable y queda registrado en pricing).
   useEffect(() => {
@@ -282,7 +297,7 @@ export default function ReservationsBoard() {
       await loadBookings();
       return;
     }
-    const data = (await res.json().catch(() => ({}))) as { error?: string; from?: string; to?: string };
+    const data = (await res.json().catch(() => ({}))) as { error?: string; from?: string; to?: string; hint?: string };
     if (res.status === 401) {
       window.location.href = '/admin/login';
       return;
@@ -290,7 +305,9 @@ export default function ReservationsBoard() {
     toast.error(
       data.error === 'invalid_transition'
         ? `Transición inválida: ${data.from} → ${data.to}`
-        : 'No se pudo actualizar',
+        : data.error === 'unavailable'
+          ? 'La unidad sigue ocupada en esas fechas: edítalas antes de confirmar'
+          : 'No se pudo actualizar',
     );
   }
 

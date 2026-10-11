@@ -16,6 +16,7 @@ import {
   snapshotExtras,
 } from '../../../../lib/pricing';
 import { pickFreeUnit, isUnitFree } from '../../../../lib/availability';
+import { broadcastBookingStatus } from '../../../../lib/alerts';
 
 export const prerender = false;
 
@@ -239,14 +240,37 @@ export async function PATCH(context: APIContext): Promise<Response> {
 
   // Cancelar NO requiere "liberar" nada a mano: la constraint y las queries
   // de disponibilidad filtran por status; el inventario es una proyección.
-  const updated = await sql`
-    UPDATE bookings
-    SET
-      status = COALESCE(${to ?? null}, status),
-      notes = COALESCE(${notes ?? null}, notes)
-    WHERE id = ${id}
-    RETURNING *
-  `;
+  let updated;
+  try {
+    updated = await sql`
+      UPDATE bookings
+      SET
+        status = COALESCE(${to ?? null}, status),
+        notes = COALESCE(${notes ?? null}, notes)
+      WHERE id = ${id}
+      RETURNING *
+    `;
+  } catch (err) {
+    // Confirmar un lead cuyas fechas siguen chocando con la reserva que
+    // ocupa la unidad: la constraint lo impide — la constraint manda.
+    if ((err as { code?: string }).code === '23P01' && to === 'confirmed') {
+      return json(
+        { error: 'unavailable', hint: 'La unidad sigue ocupada en esas fechas: edítalas (o cambia de modelo) antes de confirmar.' },
+        409,
+      );
+    }
+    throw err;
+  }
+
+  // La transición se anuncia a las pestañas del staff (badge del nav).
+  if (to !== undefined && to !== booking.status) {
+    broadcastBookingStatus({
+      id,
+      code: booking.code as string,
+      from: booking.status as string,
+      to,
+    });
+  }
 
   return json({ booking: updated[0] });
 }
