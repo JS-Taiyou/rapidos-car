@@ -6,7 +6,11 @@
 // bundle del cliente y filtraría credenciales.
 import postgres from 'postgres';
 
-const DATABASE_URL = import.meta.env.DATABASE_URL;
+// Runtime PRIMERO: Astro hornea import.meta.env.* dentro del bundle en
+// BUILD time (p.ej. la variable dummy del Dockerfile o un build de CI), y
+// ese valor pisaría el .env real al arrancar. process.env refleja siempre
+// el entorno del proceso (--env-file, variables de la plataforma).
+const DATABASE_URL = process.env.DATABASE_URL ?? import.meta.env.DATABASE_URL;
 
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL no está definida; copia .env.example a .env');
