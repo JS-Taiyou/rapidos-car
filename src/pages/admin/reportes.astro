@@ -1,0 +1,305 @@
+---
+// Admin — Reportes (/admin/reportes) — SSR, sin isla: lectura de negocio
+// calculada 100% desde la BD (spec §4.6, adelantado por decisión del dueño;
+// ver spec §6). Conversión de leads web, ingresos por modelo, ocupación por
+// unidad y canal — rango ajustable con ?from=&to= (default: mes en curso).
+import { requireAdmin } from '../../lib/auth';
+import { sql } from '../../lib/db';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import '../../styles/global.css';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+// Rango: default = mes en curso (hora de Mérida).
+const now = new Date();
+const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+const parseDate = (raw: string | null, fallback: Date): Date => {
+  if (!raw) return fallback;
+  const d = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? fallback : d;
+};
+const from = parseDate(Astro.url.searchParams.get('from'), defaultFrom);
+const toRaw = Astro.url.searchParams.get('to');
+const to = toRaw ? parseDate(toRaw, now) : now;
+if (to <= from) from.setTime(to.getTime() - 30 * 86_400_000);
+const rangeDays = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
+const fmtInput = (d: Date) => d.toISOString().slice(0, 10);
+
+const RENTED = `('confirmed','active','completed')`;
+
+// ---- Resumen + conversión de leads web ------------------------------------
+const summaryRows = await sql`
+  SELECT
+    COUNT(*) FILTER (WHERE status IN ('confirmed','active','completed'))::int AS rentals,
+    COALESCE(SUM(total_cents) FILTER (WHERE status IN ('confirmed','active','completed')), 0) AS revenue_cents,
+    COUNT(*) FILTER (WHERE requested->>'channel' = 'web')::int AS web_leads,
+    COUNT(*) FILTER (WHERE requested->>'channel' = 'web' AND status IN ('confirmed','active','completed'))::int AS web_converted,
+    COUNT(*) FILTER (WHERE requested->>'channel' = 'web' AND status = 'quoted')::int AS pending_leads
+  FROM bookings
+  WHERE kind = 'rental'
+    AND period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+`;
+const summary = summaryRows[0];
+const revenueCents = Number(summary.revenue_cents);
+const webLeads = Number(summary.web_leads);
+const webConverted = Number(summary.web_converted);
+const conversionPct = webLeads > 0 ? Math.round((webConverted / webLeads) * 100) : 0;
+
+// ---- Por modelo: ingresos + demanda latente (pedidos web, incluso sin
+// disponibilidad — los leads quoted cuentan como demanda) ------------------
+const revenueRows = await sql`
+  SELECT m.slug, m.name,
+         COUNT(b.id)::int AS rentals,
+         COALESCE(SUM(b.total_cents), 0) AS revenue_cents
+  FROM bookings b
+  JOIN vehicles v ON v.id = b.vehicle_id
+  JOIN vehicle_models m ON m.id = v.model_id
+  WHERE b.kind = 'rental' AND b.status IN ('confirmed','active','completed')
+    AND b.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+  GROUP BY m.id
+`;
+const demandRows = await sql`
+  SELECT requested->'model'->>'slug' AS slug,
+         requested->'model'->>'name' AS name,
+         COUNT(*)::int AS pedidos
+  FROM bookings
+  WHERE kind = 'rental'
+    AND requested->>'channel' = 'web'
+    AND period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+  GROUP BY 1, 2
+`;
+const demandBySlug = new Map(demandRows.map((r) => [r.slug as string, Number(r.pedidos)]));
+const modelsReport = revenueRows
+  .map((r) => ({
+    name: r.name as string,
+    rentals: Number(r.rentals),
+    revenueCents: Number(r.revenue_cents),
+    demand: demandBySlug.get(r.slug as string) ?? 0,
+  }))
+  .concat(
+    demandRows
+      .filter((r) => !revenueRows.some((x) => x.slug === r.slug))
+      .map((r) => ({ name: (r.name ?? String(r.slug)) as string, rentals: 0, revenueCents: 0, demand: Number(r.pedidos) })),
+  )
+  .sort((a, b) => b.revenueCents - a.revenueCents || b.demand - a.demand);
+const maxRevenue = Math.max(1, ...modelsReport.map((m) => m.revenueCents));
+
+// ---- Ocupación por unidad (días ocupados / días del rango) ----------------
+const occupancyRows = await sql`
+  SELECT v.plate, m.name AS model_name,
+         -- LEAST/GREATEST ignoran NULL (unidades sin reservas darían el
+         -- rango completo): el FILTER del agregado sólo suma reservas reales.
+         COALESCE(SUM(
+           EXTRACT(EPOCH FROM least(upper(b.period), ${to}::timestamptz)
+                           - greatest(lower(b.period), ${from}::timestamptz)) / 86400
+         ) FILTER (WHERE b.id IS NOT NULL), 0) AS busy_days
+  FROM vehicles v
+  JOIN vehicle_models m ON m.id = v.model_id
+  LEFT JOIN bookings b
+    ON b.vehicle_id = v.id
+   AND b.kind = 'rental'
+   AND b.status IN ('confirmed','active','completed')
+   AND b.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+  GROUP BY v.id, m.name, v.plate
+  ORDER BY busy_days DESC
+`;
+const units = occupancyRows
+  .map((r) => ({
+    plate: r.plate as string,
+    model: r.model_name as string,
+    busyDays: Math.round(Number(r.busy_days) * 10) / 10,
+    pct: Math.min(100, Math.round((Number(r.busy_days) / rangeDays) * 100)),
+  }))
+  .filter((u) => u.busyDays > 0);
+
+// ---- Canal -----------------------------------------------------------------
+const channelRows = await sql`
+  SELECT COALESCE(requested->>'channel', 'sin_dato') AS channel, COUNT(*)::int AS n
+  FROM bookings
+  WHERE kind = 'rental' AND status IN ('confirmed','active','completed')
+    AND period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+  GROUP BY 1
+`;
+const channelLabel: Record<string, string> = { web: 'Web (cliente)', admin: 'Staff (manual)', sin_dato: 'Sin dato' };
+
+const money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+const dateShort = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZone: 'America/Merida' });
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Reportes — Rapidoz Admin</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-6xl space-y-8 px-4 py-8">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">Reportes</h1>
+          <p class="text-sm text-muted-foreground">
+            {dateShort.format(from)} → {dateShort.format(to)} · {rangeDays} días
+          </p>
+        </div>
+        <form method="get" class="flex items-end gap-2">
+          <div>
+            <label for="rp-from" class="block text-xs text-muted-foreground">Desde</label>
+            <input id="rp-from" type="date" name="from" value={fmtInput(from)}
+              class="h-9 rounded-md border bg-background px-2 text-sm" />
+          </div>
+          <div>
+            <label for="rp-to" class="block text-xs text-muted-foreground">Hasta</label>
+            <input id="rp-to" type="date" name="to" value={fmtInput(to)}
+              class="h-9 rounded-md border bg-background px-2 text-sm" />
+          </div>
+          <button type="submit" class="h-9 rounded-md bg-brand px-4 text-sm font-medium text-white">
+            Aplicar
+          </button>
+        </form>
+      </div>
+
+      <!-- Resumen -->
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Rentas en el periodo</p>
+          <p class="mt-1 text-4xl font-bold">{Number(summary.rentals)}</p>
+        </div>
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Ingresos (confirmadas+)</p>
+          <p class="mt-1 text-3xl font-bold text-brand">{money.format(revenueCents / 100)}</p>
+        </div>
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Solicitudes web</p>
+          <p class="mt-1 text-4xl font-bold">{webLeads}</p>
+          {Number(summary.pending_leads) > 0 && (
+            <p class="text-xs text-amber-700">{Number(summary.pending_leads)} pendientes de atender</p>
+          )}
+        </div>
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Convertidas en renta</p>
+          <p class="mt-1 text-4xl font-bold">{webConverted}</p>
+        </div>
+        <div class="rounded-xl border bg-background p-5">
+          <p class="text-sm text-muted-foreground">Conversión web</p>
+          <p class="mt-1 text-4xl font-bold">{conversionPct}%</p>
+          <div class="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-muted">
+            <div class="h-full rounded-full bg-brand" style={`width: ${conversionPct}%`}></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Por modelo -->
+      <section class="rounded-xl border bg-background">
+        <h2 class="border-b px-5 py-3 font-semibold">Modelos: ingresos y demanda</h2>
+        {
+          modelsReport.length === 0 ? (
+            <p class="px-5 py-8 text-center text-sm text-muted-foreground">
+              Sin actividad en el periodo.
+            </p>
+          ) : (
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th class="px-5 py-2">Modelo</th>
+                    <th class="px-3 py-2">Rentas</th>
+                    <th class="px-3 py-2">Ingresos</th>
+                    <th class="px-3 py-2">Pedidos web</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modelsReport.map((m) => (
+                    <tr class="border-b last:border-0">
+                      <td class="px-5 py-2 font-medium">
+                        {m.name}
+                        {m.demand > 0 && m.rentals === 0 && (
+                          <span class="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                            SOLO DEMANDA
+                          </span>
+                        )}
+                      </td>
+                      <td class="px-3 py-2">{m.rentals}</td>
+                      <td class="px-3 py-2">
+                        <div class="flex items-center gap-2">
+                          <span class="w-24 tabular-nums">{money.format(m.revenueCents / 100)}</span>
+                          <span class="h-2 w-32 overflow-hidden rounded-full bg-muted">
+                            <span
+                              class="block h-full rounded-full bg-brand"
+                              style={`width: ${Math.round((m.revenueCents / maxRevenue) * 100)}%`}
+                            />
+                          </span>
+                        </div>
+                      </td>
+                      <td class="px-3 py-2">{m.demand}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+        <p class="px-5 py-3 text-xs text-muted-foreground">
+          "Pedidos web" incluye leads sin disponibilidad (demanda latente).
+        </p>
+      </section>
+
+      <!-- Ocupación por unidad -->
+      <section class="rounded-xl border bg-background">
+        <h2 class="border-b px-5 py-3 font-semibold">Ocupación por unidad ({rangeDays} días)</h2>
+        {
+          units.length === 0 ? (
+            <p class="px-5 py-8 text-center text-sm text-muted-foreground">
+              Ninguna unidad ocupada en el periodo.
+            </p>
+          ) : (
+            <ul class="divide-y">
+              {units.map((u) => (
+                <li class="flex items-center gap-4 px-5 py-2.5 text-sm">
+                  <span class="w-24 shrink-0 font-mono text-xs">{u.plate}</span>
+                  <span class="w-40 shrink-0 truncate text-muted-foreground">{u.model}</span>
+                  <span class="h-3 flex-1 overflow-hidden rounded-full bg-muted">
+                    <span
+                      class:list={['block h-full rounded-full', u.pct >= 80 ? 'bg-amber-500' : 'bg-brand']}
+                      style={`width: ${u.pct}%`}
+                    />
+                  </span>
+                  <span class="w-28 shrink-0 text-right tabular-nums text-muted-foreground">
+                    {u.busyDays} d · {u.pct}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )
+        }
+        <p class="px-5 py-3 text-xs text-muted-foreground">
+          Barras ámbar = unidades al 80%+ del periodo ocupadas (candidatas a ampliar flota).
+        </p>
+      </section>
+
+      <!-- Canal -->
+      <section class="rounded-xl border bg-background">
+        <h2 class="border-b px-5 py-3 font-semibold">Canal de reserva (rentas)</h2>
+        <ul class="divide-y text-sm">
+          {
+            channelRows.length === 0 ? (
+              <li class="px-5 py-6 text-center text-muted-foreground">Sin rentas en el periodo.</li>
+            ) : (
+              channelRows.map((c) => (
+                <li class="flex items-center justify-between px-5 py-2.5">
+                  <span>{channelLabel[c.channel as string] ?? c.channel}</span>
+                  <span class="font-semibold">{Number(c.n)}</span>
+                </li>
+              ))
+            )
+          }
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

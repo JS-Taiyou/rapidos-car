@@ -26,3 +26,6 @@ pnpm-debug.log*
 
 # fotos subidas en runtime por el admin (servidas por /uploads/)
 uploads/
+
+# cookies de pruebas locales
+cr*.txt
