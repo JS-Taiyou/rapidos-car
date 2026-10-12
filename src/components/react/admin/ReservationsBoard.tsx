@@ -210,6 +210,8 @@ export default function ReservationsBoard() {
   const [repriceValue, setRepriceValue] = useState('');
   const [repriceReason, setRepriceReason] = useState('');
   const [repricing, setRepricing] = useState(false);
+  // Replan (Fase 4): editor de la línea de tiempo de tramos.
+  const [planTarget, setPlanTarget] = useState<AdminBooking | null>(null);
   // Edición de la reserva (modelo/fechas/extras) — el lead 'quoted' se
   // convierte en reservación real ajustando aquí y confirmando.
   const [editTarget, setEditTarget] = useState<AdminBooking | null>(null);
@@ -698,6 +700,11 @@ export default function ReservationsBoard() {
                       {b.kind === 'rental' && (b.status === 'quoted' || b.status === 'confirmed') && (
                         <Button size="sm" variant="outline" onClick={() => openEdit(b)}>
                           Editar
+                        </Button>
+                      )}
+                      {b.kind === 'rental' && ['quoted', 'confirmed', 'active'].includes(b.status) && (
+                        <Button size="sm" variant="outline" onClick={() => setPlanTarget(b)}>
+                          Extender/Cambiar
                         </Button>
                       )}
                       {b.kind === 'rental' && (
@@ -1234,7 +1241,272 @@ export default function ReservationsBoard() {
           </form>
         </DialogContent>
       </Dialog>
+      {planTarget && (
+        <ReplanDialog
+          booking={planTarget}
+          models={models}
+          onClose={() => setPlanTarget(null)}
+          onDone={() => {
+            setPlanTarget(null);
+            loadBookings().catch(() => undefined);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ReplanDialog (Fase 4) — "Extender o cambiar": el staff edita la línea de
+// tiempo de tramos (mover fin, insertar cambio de vehículo, trocear la renta
+// en varios modelos). Validar → preview del servidor con delta vs contrato y
+// alternativas con unidad libre cuando un tramo colisiona → aplicar (PUT
+// atómico). El descuento por renta larga se evalúa sobre el TOTAL de días.
+// ---------------------------------------------------------------------------
+interface PlanRow {
+  id?: number;
+  modelSlug: string;
+  start: string; // datetime-local
+  end: string;
+}
+
+interface PlanPreview {
+  ok: boolean;
+  errors: Array<{ index: number; message: string }>;
+  alternatives: Record<number, Array<{ slug: string; name: string; dailyRateCents: number; totalCents: number; deltaCents: number }>>;
+  daysTotal: number;
+  discountPct: number;
+  segments: Array<{ index: number; model: string; days: number; totalCents: number; keptUnit: boolean }>;
+  totals: { currentCents: number; proposedCents: number; deltaCents: number };
+}
+
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function ReplanDialog({
+  booking,
+  models,
+  onClose,
+  onDone,
+}: {
+  booking: AdminBooking;
+  models: Array<{ slug: string; name: string }>;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const liveSegments = (booking.segments ?? []).filter((s) => !['completed', 'cancelled'].includes(s.status));
+  const [rows, setRows] = useState<PlanRow[]>(() =>
+    liveSegments.map((s) => ({
+      id: s.id,
+      modelSlug: s.model_slug,
+      start: toLocalInput(s.period_start),
+      end: toLocalInput(s.period_end),
+    })),
+  );
+  const [preview, setPreview] = useState<PlanPreview | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [applying, setApplying] = useState(false);
+
+  const setRow = (i: number, patch: Partial<PlanRow>) => {
+    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    setPreview(null);
+  };
+
+  function addRow() {
+    const last = rows.at(-1);
+    const start = last ? last.end : toLocalInput(new Date().toISOString());
+    const end = new Date(new Date(start).getTime() + 86_400_000).toISOString().slice(0, 16);
+    setRows((prev) => [...prev, { modelSlug: prev.at(-1)?.modelSlug ?? models[0]?.slug ?? '', start, end }]);
+    setPreview(null);
+  }
+
+  const bodyOf = () => ({
+    segments: rows.map((r) => ({
+      ...(r.id !== undefined ? { id: r.id } : {}),
+      modelSlug: r.modelSlug,
+      start: new Date(r.start).toISOString(),
+      end: new Date(r.end).toISOString(),
+    })),
+  });
+
+  async function validate() {
+    setValidating(true);
+    try {
+      const res = await fetch(`/api/admin/bookings/${booking.id}/segments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyOf()),
+      });
+      if (res.status === 401) {
+        window.location.href = '/admin/login';
+        return;
+      }
+      setPreview((await res.json()) as PlanPreview);
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  async function apply() {
+    setApplying(true);
+    try {
+      const res = await fetch(`/api/admin/bookings/${booking.id}/segments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyOf()),
+      });
+      if (res.status === 401) {
+        window.location.href = '/admin/login';
+        return;
+      }
+      if (res.ok) {
+        toast.success(`${booking.code}: plan aplicado`);
+        onDone();
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { error?: string; hint?: string };
+      toast.error(data.hint ?? 'No se pudo aplicar el plan');
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  const delta = preview?.totals.deltaCents ?? 0;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Extender o cambiar — {booking.code}</DialogTitle>
+          <DialogDescription>
+            {booking.customer_name} · {moneyFmt.format(booking.total_cents / 100)} actuales. Trocea la renta en
+            varios vehículos o mueve el fin; cada tramo se cobra con su tarifa por sus días.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {rows.map((row, i) => (
+            <div key={row.id ?? `new-${i}`} className="space-y-2 rounded-xl border p-3">
+              <div className="flex items-center gap-2">
+                <span className="w-6 shrink-0 text-center text-xs font-bold text-muted-foreground">{i + 1}</span>
+                <Select value={row.modelSlug} onValueChange={(v) => setRow(i, { modelSlug: v })}>
+                  <SelectTrigger aria-label={`Modelo del tramo ${i + 1}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((m) => (
+                      <SelectItem key={m.slug} value={m.slug}>
+                        {m.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {rows.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Quitar tramo ${i + 1}`}
+                    onClick={() => {
+                      setRows((prev) => prev.filter((_, j) => j !== i));
+                      setPreview(null);
+                    }}
+                  >
+                    ✕
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  type="datetime-local"
+                  value={row.start}
+                  aria-label={`Inicio del tramo ${i + 1}`}
+                  onChange={(e) => setRow(i, { start: e.target.value })}
+                />
+                <Input
+                  type="datetime-local"
+                  value={row.end}
+                  aria-label={`Fin del tramo ${i + 1}`}
+                  onChange={(e) => setRow(i, { end: e.target.value })}
+                />
+              </div>
+              {preview?.errors
+                .filter((e) => e.index === i)
+                .map((e) => (
+                  <p key={e.message} className="text-xs text-destructive">
+                    ⚠ {e.message}
+                  </p>
+                ))}
+              {preview?.alternatives[i]?.length ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium">Alternativas con unidad libre:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {preview.alternatives[i].slice(0, 6).map((alt) => (
+                      <button
+                        key={alt.slug}
+                        type="button"
+                        onClick={() => setRow(i, { modelSlug: alt.slug })}
+                        className="rounded-full border px-2.5 py-1 text-xs hover:bg-accent"
+                        title={`${moneyFmt.format(alt.totalCents / 100)} por el tramo`}
+                      >
+                        {alt.name} · {alt.deltaCents >= 0 ? '+' : '−'}
+                        {moneyFmt.format(Math.abs(alt.deltaCents) / 100)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {rows.length < 6 && (
+            <Button type="button" variant="outline" size="sm" onClick={addRow}>
+              + Agregar tramo (cambio de vehículo)
+            </Button>
+          )}
+        </div>
+
+        {preview && preview.ok && (
+          <div className="rounded-xl border-2 border-brand/30 bg-brand-soft/40 p-4 text-sm">
+            <p className="font-bold text-brand-dark">Plan resultante</p>
+            <ul className="mt-1.5 space-y-1">
+              {preview.segments.map((s) => (
+                <li key={s.index}>
+                  {s.index + 1}. {s.days} día(s) {s.model} — {moneyFmt.format(s.totalCents / 100)}
+                  {s.keptUnit && <span className="ml-1 text-xs text-muted-foreground">(misma placa)</span>}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2">
+              Total {moneyFmt.format(preview.totals.proposedCents / 100)} ·{' '}
+              <span className={delta > 0 ? 'font-semibold text-amber-700' : delta < 0 ? 'font-semibold text-emerald-700' : ''}>
+                {delta > 0 ? '+' : delta < 0 ? '−' : ''}
+                {moneyFmt.format(Math.abs(delta) / 100)} vs actual
+              </span>
+            </p>
+            {preview.discountPct > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Incluye {preview.discountPct}% de descuento por renta larga ({preview.daysTotal} días en total).
+              </p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={validate} disabled={validating || applying}>
+            {validating ? 'Validando…' : 'Validar plan'}
+          </Button>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="button" disabled={!preview?.ok || applying} onClick={apply}>
+            {applying ? 'Aplicando…' : 'Aplicar cambios'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
