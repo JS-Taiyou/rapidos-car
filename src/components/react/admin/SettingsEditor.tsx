@@ -28,10 +28,22 @@ export interface EditableTenant {
   logo: TenantLogo;
 }
 
+export interface EditableChecklistItem {
+  id: string;
+  label: string;
+  defaultChecked: boolean;
+}
+
 
 const COLORS = ['#0e7490', '#d97706', '#e11d48', '#0284c7', '#059669', '#475569'];
 
-export default function SettingsEditor({ tenant }: { tenant: EditableTenant }) {
+export default function SettingsEditor({
+  tenant,
+  checklists,
+}: {
+  tenant: EditableTenant;
+  checklists: { out: EditableChecklistItem[]; in: EditableChecklistItem[] };
+}) {
   const [form, setForm] = useState({
     name: tenant.name,
     email: tenant.email,
@@ -42,6 +54,7 @@ export default function SettingsEditor({ tenant }: { tenant: EditableTenant }) {
     messengerUrl: tenant.messengerUrl,
   });
   const [logo, setLogo] = useState<TenantLogo>(tenant.logo);
+  const [cl, setCl] = useState(checklists);
   const [saving, setSaving] = useState(false);
 
   function setPhone(i: number, value: string) {
@@ -64,6 +77,10 @@ export default function SettingsEditor({ tenant }: { tenant: EditableTenant }) {
           staffWhatsapp: form.staffWhatsapp.trim(),
           messengerUrl: form.messengerUrl.trim(),
           logo,
+          checklists: {
+            out: cl.out.filter((c) => c.label.trim().length > 1),
+            in: cl.in.filter((c) => c.label.trim().length > 1),
+          },
         }),
       });
       if (res.status === 401) {
@@ -276,6 +293,68 @@ export default function SettingsEditor({ tenant }: { tenant: EditableTenant }) {
               {logo.url && <p className="mt-2 truncate text-xs text-muted-foreground">{logo.url}</p>}
             </div>
           )}
+        </fieldset>
+
+        {/* ---------- Checklists de entrega/devolución (Fase 3) ---------- */}
+        <fieldset className="space-y-4 rounded-xl border bg-background p-5 lg:col-span-2">
+          <legend className="px-1 text-sm font-semibold">Checklists del patio</legend>
+          <p className="text-xs text-muted-foreground">
+            Lo que el staff revisa al entregar y recoger un auto. La casilla «por defecto» lo deja pre-marcado en la captura.
+          </p>
+          <div className="grid gap-6 md:grid-cols-2">
+            {(['out', 'in'] as const).map((side) => (
+              <div key={side} className="space-y-2">
+                <p className="text-sm font-medium">{side === 'out' ? 'Entrega del auto' : 'Devolución del auto'}</p>
+                {cl[side].map((item, i) => (
+                  <div key={item.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5 accent-[#0e7490]"
+                      checked={item.defaultChecked}
+                      aria-label={`Por defecto: ${item.label}`}
+                      title="Pre-marcado por defecto"
+                      onChange={(e) =>
+                        setCl({ ...cl, [side]: cl[side].map((x, j) => (j === i ? { ...x, defaultChecked: e.target.checked } : x)) })
+                      }
+                    />
+                    <Input
+                      value={item.label}
+                      aria-label={`Ítem ${i + 1} de ${side === 'out' ? 'entrega' : 'devolución'}`}
+                      onChange={(e) =>
+                        setCl({ ...cl, [side]: cl[side].map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })
+                      }
+                    />
+                    {cl[side].length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Quitar ítem ${i + 1}`}
+                        onClick={() => setCl({ ...cl, [side]: cl[side].filter((_, j) => j !== i) })}
+                      >
+                        ✕
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {cl[side].length < 20 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setCl({
+                        ...cl,
+                        [side]: [...cl[side], { id: `item${Date.now().toString(36)}`, label: '', defaultChecked: false }],
+                      })
+                    }
+                  >
+                    + Agregar ítem
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
         </fieldset>
 
         <div className="lg:col-span-2">

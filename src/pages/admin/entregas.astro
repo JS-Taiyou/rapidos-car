@@ -1,0 +1,35 @@
+---
+// Admin — Entregas (/admin/entregas) — la pantalla del patio (ROADMAP Fase
+// 3). Shell que monta HandoverBoard; los datos viven en /api/admin/agenda
+// (una sola fuente de verdad, y la que cacheará el PWA del staff).
+import { requireAdmin } from '../../lib/auth';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import '../../styles/global.css';
+import HandoverBoard from '../../components/react/admin/HandoverBoard.tsx';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Entregas — Rapidoz Admin</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-6xl space-y-6 px-4 py-6">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Entregas del día</h1>
+        <p class="text-sm text-muted-foreground">Checklist, kilometraje, combustible y fotos de evidencia.</p>
+      </div>
+      <!-- client:load: ES la herramienta del patio; hidrata de inmediato. -->
+      <HandoverBoard client:load />
+    </main>
+  </body>
+</html>

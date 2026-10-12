@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
 import { invalidateTenantCache, getTenant } from '../../../lib/tenant';
+import { getHandoverChecklists } from '../../../lib/handover';
 import { logAudit } from '../../../lib/audit';
 
 export const prerender = false;
@@ -25,6 +26,17 @@ const logoSchema = z.object({
   url: z.string().min(1).optional(),
 });
 
+// Checklists de entrega/devolución editables en Ajustes (Fase 3).
+const checklistItem = z.object({
+  id: z.string().min(1).max(40),
+  label: z.string().min(2).max(120),
+  defaultChecked: z.boolean(),
+});
+const checklistsSchema = z.object({
+  out: z.array(checklistItem).min(1).max(20),
+  in: z.array(checklistItem).min(1).max(20),
+});
+
 const settingsPatchSchema = z.object({
   name: z.string().min(2).max(60).optional(),
   email: z.string().email().nullable().optional(),
@@ -36,12 +48,13 @@ const settingsPatchSchema = z.object({
   // https://m.me/<pagina>; vacío = ocultar.
   messengerUrl: z.string().regex(/^https:\/\/(m\.me|www\.messenger\.com)\/[A-Za-z0-9.\-_]+$/, 'URL de m.me (ej. https://m.me/mipagina)').nullable().or(z.literal('')).optional(),
   logo: logoSchema.optional(),
+  checklists: checklistsSchema.optional(),
 });
 
 export async function GET(context: APIContext): Promise<Response> {
   const admin = await requireAdminApi(context.cookies);
   if (!admin) return json({ error: 'unauthorized' }, 401);
-  return json({ tenant: await getTenant() });
+  return json({ tenant: await getTenant(), checklists: await getHandoverChecklists() });
 }
 
 export async function PATCH(context: APIContext): Promise<Response> {
@@ -81,6 +94,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     if (d.staffWhatsapp !== undefined) await upsert('tenant.staff_whatsapp', d.staffWhatsapp);
     if (d.messengerUrl !== undefined) await upsert('tenant.messenger', d.messengerUrl ?? '');
     if (d.logo !== undefined) await upsert('tenant.logo', d.logo);
+    if (d.checklists !== undefined) await upsert('handover_checklists', d.checklists);
   } catch (err) {
     console.error('PATCH /api/admin/settings falló:', err);
     return json({ error: 'internal' }, 500);

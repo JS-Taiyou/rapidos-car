@@ -36,8 +36,10 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: 'invalid_form' }, 400);
   }
 
-  // dest: 'fleet' (900px) | 'logo' (256px contain) — misma vía de subida.
-  const dest = form.get('dest') === 'logo' ? 'logo' : 'fleet';
+  // dest: 'fleet' (900px) | 'logo' (256px contain) | 'handover' (1600px,
+  // evidencia de entrega/devolución) — misma vía de subida.
+  const destRaw = String(form.get('dest') ?? 'fleet');
+  const dest = destRaw === 'logo' ? 'logo' : destRaw === 'handover' ? 'handover' : 'fleet';
   const files = form.getAll('photos').filter((f): f is File => f instanceof File);
   if (files.length === 0) return json({ error: 'no_files' }, 400);
   if (files.length > MAX_FILES) return json({ error: 'too_many_files' }, 400);
@@ -45,7 +47,17 @@ export async function POST(context: APIContext): Promise<Response> {
   // Nunca confiar en el nombre del cliente: nombre aleatorio + extensión
   // canónica (sharp SIEMPRE emite WebP; la extensión del original solo se
   // usa como sanity check del content-type).
-  const destDir = join(UPLOAD_DIR, dest);
+  // Handover: subcarpeta por reserva/tramo (uploads/handover/{code}/seg{idx});
+  // code y seg se sanitizan — nunca confiar en lo que llega del cliente.
+  let destDir = join(UPLOAD_DIR, dest);
+  let urlPrefix = `/uploads/${dest}`;
+  if (dest === 'handover') {
+    const code = String(form.get('code') ?? '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 20);
+    const seg = String(form.get('seg') ?? '1').replace(/[^0-9]/g, '').slice(0, 3);
+    if (!code) return json({ error: 'missing_code' }, 400);
+    destDir = join(UPLOAD_DIR, 'handover', code, `seg${seg || '1'}`);
+    urlPrefix = `/uploads/handover/${code}/seg${seg || '1'}`;
+  }
   await mkdir(destDir, { recursive: true });
 
   const paths: string[] = [];
@@ -61,10 +73,13 @@ export async function POST(context: APIContext): Promise<Response> {
       let optimized: Buffer;
       try {
         optimized = await sharp(buffer)
+          .rotate() // respeta la orientación EXIF: crucial en fotos de cámara/móvil
           .resize(
             dest === 'logo'
               ? { width: 256, height: 256, fit: 'inside', withoutEnlargement: true }
-              : { width: 900, withoutEnlargement: true },
+              : dest === 'handover'
+                ? { width: 1600, withoutEnlargement: true }
+                : { width: 900, withoutEnlargement: true },
           )
           .webp({ quality: 72 })
           .toBuffer();
@@ -73,15 +88,16 @@ export async function POST(context: APIContext): Promise<Response> {
       }
       const name = `${crypto.randomUUID()}.webp`;
       await writeFile(join(destDir, name), optimized);
-      paths.push(`/uploads/${dest}/${name}`);
+      paths.push(`${urlPrefix}/${name}`);
     }
   } catch (err) {
     console.error('POST /api/admin/vehicles/photos falló:', err);
     return json({ error: 'processing' }, 500);
   }
 
-  // Las fotos forman parte del HTML del catálogo: tumba el snapshot.
-  invalidateFleetCache();
+  // Las fotos de flota forman parte del HTML del catálogo: tumba el snapshot
+  // (las de handover/logo-icono no tocan el catálogo… el logo sí refresca).
+  if (dest !== 'handover') invalidateFleetCache();
   return json({ paths }, 201);
 }
 

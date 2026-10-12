@@ -10,6 +10,7 @@ const tenant = await getTenant();
 const current = Astro.url.pathname;
 const links = [
   { href: '/admin', label: 'Dashboard' },
+  { href: '/admin/entregas', label: 'Entregas' },
   { href: '/admin/reservaciones', label: 'Reservaciones' },
   { href: '/admin/flota', label: 'Flota' },
   { href: '/admin/reportes', label: 'Reportes' },
@@ -21,21 +22,23 @@ const links = [
 ---
 
 <nav class="border-b bg-background">
-  <div class="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
-    <a href="/admin" class="flex items-center gap-2 font-bold">
+  <div class="mx-auto flex h-14 max-w-6xl items-center gap-2 px-3 sm:gap-4 sm:px-4">
+    <a href="/admin" class="flex shrink-0 items-center gap-2 font-bold">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
       </svg>
-      {tenant.name} <span class="text-sm font-normal text-muted-foreground">Panel</span>
+      {tenant.name} <span class="hidden text-sm font-normal text-muted-foreground sm:inline">Panel</span>
     </a>
-    <ul class="flex items-center gap-1">
+    <!-- En móvil la lista se desliza horizontal (sin scrollbar visual): el
+         panel completo debe ser usable en la tablet del patio. -->
+    <ul class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-1">
       {
         links.map((link) => (
-          <li>
+          <li class="shrink-0">
             <a
               href={link.href}
               class:list={[
-                'rounded-md px-3 py-1.5 text-sm font-medium',
+                'block whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] font-medium sm:px-3 sm:text-sm',
                 current === link.href ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent',
               ]}
               aria-current={current === link.href ? 'page' : undefined}
@@ -46,10 +49,10 @@ const links = [
         ))
       }
     </ul>
-    <form id="logout-form" class="ml-auto">
+    <form id="logout-form" class="ml-auto shrink-0">
       <button
         type="submit"
-        class="rounded-md border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent"
+        class="rounded-md border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent sm:px-3"
       >
         Salir
       </button>

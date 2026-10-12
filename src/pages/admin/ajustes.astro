@@ -5,6 +5,7 @@
 // (cache de tenant invalidado).
 import { requireAdmin } from '../../lib/auth';
 import { getTenant } from '../../lib/tenant';
+import { getHandoverChecklists } from '../../lib/handover';
 import AdminNav from '../../components/admin/AdminNav.astro';
 import SettingsEditor from '../../components/react/admin/SettingsEditor.tsx';
 import '../../styles/global.css';
@@ -15,6 +16,7 @@ const admin = await requireAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 const tenant = await getTenant();
+const checklists = await getHandoverChecklists();
 ---
 
 <!doctype html>
@@ -41,6 +43,7 @@ const tenant = await getTenant();
           messengerUrl: tenant.messengerUrl ?? '',
           logo: tenant.logo,
         }}
+        checklists={checklists}
       />
     </main>
   </body>
