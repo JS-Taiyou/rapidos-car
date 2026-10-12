@@ -6,9 +6,9 @@
 # final lleva solo dist/ + node_modules de producción.
 #
 # Uso:
-#   docker build -t rapidoz .
+#   docker build -t rapidos .
 #   docker run -d --restart unless-stopped -p 4321:4321 \
-#     --env-file .env rapidoz
+#     --env-file .env rapidos
 #
 # La plataforma puede inyectar HOST/PORT (Railway/Render/Fly lo hacen; el
 # adapter standalone los respeta). Las migraciones NUNCA corren al arranque

@@ -10,7 +10,7 @@
 import { useRef, useState } from 'react';
 
 // Tipo MIME custom: firma los arrastres que iniciaron en la galería.
-export const GALLERY_DRAG_TYPE = 'application/x-rapidoz-gallery';
+export const GALLERY_DRAG_TYPE = 'application/x-rapidos-gallery';
 
 interface Props {
   onFiles: (files: File[]) => void;

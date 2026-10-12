@@ -2,6 +2,7 @@
 // contrato por recurso; alimenta react-hook-form en las islas y safeParse en
 // los endpoints. Archivo PURO: sin imports de Astro ni de db.
 import { z } from 'zod';
+import { bookingCodePrefix } from './business';
 
 // Genera códigos legibles 'RPZ-XXXXXX' con alfabeto sin ambiguos (sin
 // 0/O/1/I/L): se dicta por teléfono. Vive aquí porque lo comparten
@@ -11,7 +12,7 @@ const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export function generateBookingCode(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(6));
   const chars = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]);
-  return `RPZ-${chars.join('')}`;
+  return `${bookingCodePrefix}-${chars.join('')}`;
 }
 
 export const customerSchema = z.object({

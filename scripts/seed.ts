@@ -34,8 +34,8 @@ async function hashPassword(password: string): Promise<string> {
 
 try {
   await sql.begin(async (tx) => {
-    // Flota replicada del sitio original (rapidozrental.mx, secciones
-    // /flota/*: nombres, categorías, transmisión, asientos y tarifa por día
+    // Flota de ejemplo replicada de un negocio real de renta en Mérida
+    // (nombres, categorías, transmisión, asientos y tarifa por día
     // según publican). Maletas estimadas por categoría (TODO: confirmar).
     // Dodge Attitude aparece en mediano ($350) y grande ($400): dos filas,
     // como en el original.

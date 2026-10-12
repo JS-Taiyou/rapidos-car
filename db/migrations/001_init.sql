@@ -1,5 +1,5 @@
 -- ============================================================================
--- MIGRACIÓN 001 — Esquema inicial de Rapidoz Rental
+-- MIGRACIÓN 001 — Esquema inicial del sistema de renta (white label)
 -- Convenios (ARCHITECTURE §2.13): dinero en centavos enteros (*_cents),
 -- rangos de tiempo tstzrange, zona del negocio America/Merida.
 -- ============================================================================

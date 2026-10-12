@@ -1,4 +1,4 @@
-# Rapidoz Rental — Arquitectura y diseño
+# Rapidos Car — Arquitectura y diseño (sistema white label de renta de autos)
 
 Documento maestro del proyecto. Aquí viven las decisiones de arquitectura y su
 justificación; cada archivo del repo contiene una **guía paso a paso** (solo

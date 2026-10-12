@@ -1,3 +1,5 @@
+import { business } from './business';
+
 // Deep links wa.me prellenados (MVP de notificaciones, spec §5). Funciones
 // PURAS sin fetch ni imports de Astro/db: sirven idéntico en frontmatter
 // .astro, endpoints y CTAs estáticos. WhatsApp Business API es fase 2; aquí
@@ -40,7 +42,7 @@ export function bookingConfirmationMessage(
 
   if (lang === 'en') {
     return [
-      'Hi Rapidoz! This is my booking confirmation.',
+      `Hi ${business.name}! This is my booking confirmation.`,
       `Booking code: ${booking.code}`,
       `Car: ${booking.modelName}`,
       `Pickup: ${dt.format(booking.start)} (${booking.pickupZone})`,
@@ -50,7 +52,7 @@ export function bookingConfirmationMessage(
     ].join('\n');
   }
   return [
-    '¡Hola Rapidoz! Les comparto mi confirmación de reservación.',
+    `¡Hola ${business.name}! Les comparto mi confirmación de reservación.`,
     `Código de reservación: ${booking.code}`,
     `Auto: ${booking.modelName}`,
     `Entrega: ${dt.format(booking.start)} (${booking.pickupZone})`,

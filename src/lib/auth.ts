@@ -103,7 +103,8 @@ export async function hashToken(token: string): Promise<string> {
   return sha256Hex(token);
 }
 
-export const SESSION_COOKIE = 'rapidoz_session';
+// Nombre de cookie neutro al tenant (renombrar tumba sesiones activas).
+export const SESSION_COOKIE = 'rapidos_session';
 
 export const cookieOptions = {
   httpOnly: true,

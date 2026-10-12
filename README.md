@@ -1,43 +1,71 @@
-# Astro Starter Kit: Minimal
+# Rapidos Car 🚗
 
-```sh
-npm create astro@latest -- --template minimal
+Sistema **white label** de renta de vehículos: sitio público bilingüe (ES/EN),
+motor de cotización y reservas en tiempo real, panel administrativo con
+alertas en vivo y CRM ligero de clientes. Construido para ser rentado por
+cualquier negocio de renta de autos con solo cambiar su perfil de tenant.
+
+## Características
+
+- **Sitio público bilingüe** (Astro static-first, islas React solo donde hay
+  interacción real): catálogo con filtros y carruseles, wizard de reservas
+  de 6 pasos, FAQ, ubicaciones y contacto — todo con SEO (hreflang,
+  JSON-LD, canonical).
+- **Motor de disponibilidad por unidad** con buffer de rotación y
+  *constraint de exclusión* en PostgreSQL (`btree_gist` + `tstzrange`):
+  imposible persistir dos rentas solapadas de la misma unidad, sin importar
+  carreras entre requests.
+- **Motor de precios por reglas**: temporada por día, descuentos por renta
+  larga, extras por día/renta, cargo por zona e IVA — todo en centavos
+  enteros, con desglose y procedencia (`engine`/`manual`/`adjust`, motivo y
+  autor) persistidos en jsonb.
+- **Leads web**: cuando no hay disponibilidad, la solicitud se guarda como
+  reservación `quoted` (sin apartar inventario) para follow-up del staff,
+  con el pedido original congelado (`requested` jsonb) y diff visual.
+- **Panel admin**: dashboard del día, pipeline de reservaciones
+  (lista/calendario), captura manual con ajustes de precio, CRUD de flota
+  con subida de fotos (sharp → WebP), reportes de negocio, CRM de clientes
+  con unificación por CURP.
+- **Alertas en vivo** (SSE, sin polling): beep + globitos + badge de leads
+  sin atender en todas las pestañas del staff conectadas.
+
+## Stack
+
+Astro 7 (islas React) · Node 22 (`@astrojs/node` standalone) · PostgreSQL
+(postgres.js, sin ORM; migraciones SQL numeradas) · Tailwind v4 · shadcn/ui
+· zod · sharp. Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) para el
+detalle y el por qué de cada decisión.
+
+## Puesta en marcha
+
+```bash
+npm install
+cp .env.example .env          # DATABASE_URL (Postgres local o Supabase)
+npm run db:migrate            # aplica db/migrations/*.sql
+npm run db:seed               # flota de ejemplo, extras, temporadas, admin
+npm run db:seed:demo          # opcional: datos demo para explorar el panel
+npm run dev                   # http://localhost:4321
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+Admin: `/admin/login` — `admin@rapidoz.local` / `cambia-esto-ahora`
+(rota la contraseña en el primer uso).
 
-## 🚀 Project Structure
+## Rebranding (white label)
 
-Inside of your Astro project, you'll see the following folders and files:
+Todo lo que identifica al negocio vive en **un solo archivo**:
+[`src/lib/business.ts`](src/lib/business.ts) — nombre, teléfono, WhatsApp,
+dirección, horario, mapa, prefijo del código de reservación y créditos del
+autor. Edítalo, recompila y listo: footer, header, login, títulos, WhatsApp
+y JSON-LD usan esa fuente. El seed de la BD y los textos del panel son
+neutros al tenant.
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
-```
+## Despliegue
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+Un solo proceso Node (estáticos + SSR + API). `Dockerfile` multi-stage
+listo para cualquier host de contenedores (Railway, Render, Fly.io) o VPS
+(Hetzner & co.). Las migraciones corren como paso de release, nunca al
+arrancar la réplica. Ver §8 de la arquitectura.
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+---
 
-Any static assets, like images, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+Hecho con 💚 por [Jorge Solís](https://github.com/jpsb23).

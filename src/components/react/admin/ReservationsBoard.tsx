@@ -237,7 +237,7 @@ export default function ReservationsBoard() {
     return () => ac.abort();
   }, [loadBookings]);
 
-  // Deep-link ?code=RPZ-XXXXXX (globito de alerta): abre el diálogo de ESA
+  // Deep-link ?code=<código> (globito de alerta): abre el diálogo de ESA
   // reserva al aterrizar. Espera a bookings + catálogo de extras; corre una
   // sola vez y limpia la URL.
   const openedRef = useRef(false);

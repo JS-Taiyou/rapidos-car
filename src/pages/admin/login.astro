@@ -6,6 +6,7 @@ import { getSessionUser, SESSION_COOKIE } from '../../lib/auth';
 import { sql } from '../../lib/db';
 import '../../styles/global.css';
 import LoginForm from '../../components/react/admin/LoginForm.tsx';
+import { business } from '../../lib/business';
 
 export const prerender = false;
 
@@ -32,7 +33,7 @@ if (token) {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
         </svg>
-        Rapidoz
+        {business.name}
       </h1>
       <p class="mb-6 mt-1 text-sm text-muted-foreground">Panel interno</p>
       <LoginForm client:load />

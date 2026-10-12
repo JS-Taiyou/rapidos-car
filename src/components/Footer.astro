@@ -3,7 +3,7 @@
 // business.ts). CERO JavaScript: anchors tel:/mailto:/wa.me.
 import { useTranslations, getLocalizedPath, type Lang } from '../i18n/utils';
 import { buildWhatsAppUrl } from '../lib/whatsapp';
-import { business } from '../lib/business';
+import { business, author } from '../lib/business';
 
 interface Props {
   lang: Lang;
@@ -32,7 +32,7 @@ const whatsappUrl = buildWhatsAppUrl(t('footer.whatsappMessage'));
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
         </svg>
-        Rapidoz
+        {business.name}
       </p>
       <p class="mt-3 text-sm text-muted-foreground">{t('footer.tagline')}</p>
     </div>
@@ -82,6 +82,11 @@ const whatsappUrl = buildWhatsAppUrl(t('footer.whatsappMessage'));
   <div class="border-t border-border/60 py-4">
     <p class="mx-auto max-w-6xl px-4 text-center text-xs text-muted-foreground">
       © {year} {business.name}. {t('footer.rights')} · {t('footer.madeIn')}
+      <span class="mx-1" aria-hidden="true">·</span>
+      Hecho con <span aria-hidden="true">💚</span> por
+      <a href={author.url} target="_blank" rel="noopener" class="font-medium hover:text-brand">
+        {author.name}
+      </a>
     </p>
   </div>
 </footer>
