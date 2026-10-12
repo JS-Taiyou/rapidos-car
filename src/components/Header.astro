@@ -4,6 +4,7 @@
 // de mensajería son de la landing/contacto y se rigen por settings).
 import { useTranslations, getLocalizedPath, getAlternateUrl, type Lang } from '../i18n/utils';
 import { getTenant } from '../lib/tenant';
+import { iconPath } from '../lib/icons';
 
 interface Props {
   lang: Lang;
@@ -27,13 +28,7 @@ const currentPath =
     : Astro.url.pathname;
 
 const logoColor = tenant.logo.type === 'icon' ? tenant.logo.color : '#0e7490';
-const logoIcon: Record<string, string> = {
-  bolt: 'M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z',
-  car: 'M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11m-14 0h14a2 2 0 0 1 2 2v4a1 1 0 0 1-1 1h-1a2 2 0 1 1-4 0H9a2 2 0 1 1-4 0H4a1 1 0 0 1-1-1v-4a2 2 0 0 1 2-2Z',
-  key: 'M14 7a4 4 0 1 1-3.5 5.9L4 19.4V21H2v-2l6.1-6.5A4 4 0 0 1 14 7Zm2 1.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z',
-  pin: 'M12 21s-7-5.3-7-11a7 7 0 1 1 14 0c0 5.7-7 11-7 11Zm0-8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z',
-};
-const iconPath = logoIcon[tenant.logo.type === 'icon' ? tenant.logo.icon : 'bolt'];
+const headerIconPath = iconPath(tenant.logo.type === 'icon' ? tenant.logo.icon : 'bolt');
 ---
 
 <header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur">
@@ -44,7 +39,7 @@ const iconPath = logoIcon[tenant.logo.type === 'icon' ? tenant.logo.icon : 'bolt
           <img src={tenant.logo.url} alt="" width="28" height="28" class="h-7 w-7 object-contain" />
         ) : (
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d={iconPath} style={`fill:${logoColor}`} />
+            <path d={headerIconPath} style={`fill:${logoColor}`} />
           </svg>
         )
       }

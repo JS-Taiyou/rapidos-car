@@ -15,7 +15,8 @@ const slug = Astro.params.slug ?? '';
 const rows = await sql`
   SELECT m.slug, m.name, m.category, m.transmission, m.seats,
          m.luggage, m.daily_rate_cents, m.photos, m.active,
-         COUNT(v.id)::int AS active_units
+         COUNT(v.id)::int AS active_units,
+         array_agg(v.plate ORDER BY v.plate) FILTER (WHERE v.id IS NOT NULL) AS plates
   FROM vehicle_models m
   LEFT JOIN vehicles v ON v.model_id = m.id AND v.status = 'active'
   WHERE m.slug = ${slug}
@@ -35,6 +36,7 @@ const model = row
       dailyRateCents: Number(row.daily_rate_cents),
       photos: (row.photos as string[]) ?? [],
       activeUnits: Number(row.active_units),
+      plates: (row.plates as string[]) ?? [],
     }
   : null;
 
@@ -95,6 +97,15 @@ const productJsonLd = model
           <div>
             <p class="text-sm font-medium text-brand-dark">{t(`fleet.category.${model.category}`)}</p>
             <h1 class="mt-1 text-3xl font-bold tracking-tight">{model.name}</h1>
+            {model.plates.length > 0 && (
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                {model.plates.map((plate) => (
+                  <span class="rounded border border-slate-300 bg-white px-2 py-0.5 font-mono text-xs font-bold tracking-wider text-slate-700 shadow-sm">
+                    {plate}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <dl class="grid grid-cols-3 gap-3 rounded-xl border p-4 text-center text-sm">

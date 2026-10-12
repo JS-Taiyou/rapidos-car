@@ -19,7 +19,7 @@ function json(data: unknown, status = 200): Response {
 const waDigits = z.string().regex(/^\d{10,15}$/, 'Formato wa.me: 10-15 dígitos con código de país (ej. 5219991234567)');
 const logoSchema = z.object({
   type: z.enum(['icon', 'image']),
-  icon: z.enum(['bolt', 'car', 'key', 'pin']).default('bolt'),
+  icon: z.string().min(2).max(30).default('bolt'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color hex (ej. #0e7490)').default('#0e7490'),
   url: z.string().min(1).optional(),
 });

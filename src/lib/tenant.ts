@@ -8,8 +8,8 @@ import { business, bookingCodePrefix } from './business';
 
 export interface TenantLogo {
   type: 'icon' | 'image';
-  /** Presets: bolt | car | key | pin (solo type=icon). */
-  icon: 'bolt' | 'car' | 'key' | 'pin';
+  /** Id de la galería src/lib/icons.ts (solo type=icon). */
+  icon: string;
   /** Hex del preset de color (solo type=icon). */
   color: string;
   /** Ruta/URL de la imagen subida (solo type=image). */

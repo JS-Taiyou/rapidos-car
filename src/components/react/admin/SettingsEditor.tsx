@@ -8,10 +8,11 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Toaster, toast } from '../../ui/sonner';
 import PhotoDropzone from './PhotoDropzone';
+import { ICON_GALLERY, ICON_CATEGORIES } from '../../../lib/icons';
 
 interface TenantLogo {
   type: 'icon' | 'image';
-  icon: 'bolt' | 'car' | 'key' | 'pin';
+  icon: string;
   color: string;
   url?: string;
 }
@@ -27,14 +28,8 @@ export interface EditableTenant {
   logo: TenantLogo;
 }
 
-const ICON_PATHS: Record<string, string> = {
-  bolt: 'M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z',
-  car: 'M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11m-14 0h14a2 2 0 0 1 2 2v4a1 1 0 0 1-1 1h-1a2 2 0 1 1-4 0H9a2 2 0 1 1-4 0H4a1 1 0 0 1-1-1v-4a2 2 0 0 1 2-2Z',
-  key: 'M14 7a4 4 0 1 1-3.5 5.9L4 19.4V21H2v-2l6.1-6.5A4 4 0 0 1 14 7Z',
-  pin: 'M12 21s-7-5.3-7-11a7 7 0 1 1 14 0c0 5.7-7 11-7 11Z',
-};
+
 const COLORS = ['#0e7490', '#d97706', '#e11d48', '#0284c7', '#059669', '#475569'];
-const ICON_NAMES: Record<string, string> = { bolt: 'Rayo', car: 'Auto', key: 'Llave', pin: 'Pin' };
 
 export default function SettingsEditor({ tenant }: { tenant: EditableTenant }) {
   const [form, setForm] = useState({
@@ -188,7 +183,7 @@ export default function SettingsEditor({ tenant }: { tenant: EditableTenant }) {
                 <img src={logo.url} alt="Logo" className="h-10 w-10 object-contain" />
               ) : (
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d={ICON_PATHS[logo.icon]} style={{ fill: logo.color }} />
+                  <path d={ICON_GALLERY.find((i) => i.id === logo.icon)?.path ?? ICON_GALLERY[0].path} style={{ fill: logo.color }} />
                 </svg>
               )}
             </div>
@@ -214,26 +209,32 @@ export default function SettingsEditor({ tenant }: { tenant: EditableTenant }) {
 
           {logo.type === 'icon' ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Label>Icono</Label>
-                <div className="flex gap-2">
-                  {(Object.keys(ICON_PATHS) as Array<keyof typeof ICON_PATHS>).map((key) => (
-                    <button
-                      type="button"
-                      key={key}
-                      onClick={() => setLogo({ ...logo, icon: key as TenantLogo['icon'] })}
-                      aria-label={ICON_NAMES[key]}
-                      aria-pressed={logo.icon === key}
-                      className={`flex h-11 w-11 items-center justify-center rounded-lg border transition-colors ${
-                        logo.icon === key ? 'border-brand ring-2 ring-brand' : 'border-border hover:border-brand/40'
-                      }`}
-                    >
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d={ICON_PATHS[key]} style={{ fill: logo.color }} />
-                      </svg>
-                    </button>
-                  ))}
-                </div>
+                {ICON_CATEGORIES.map((cat) => (
+                  <div key={cat.id} className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">{cat.label}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ICON_GALLERY.filter((i) => i.category === cat.id).map((icon) => (
+                        <button
+                          type="button"
+                          key={icon.id}
+                          onClick={() => setLogo({ ...logo, icon: icon.id })}
+                          aria-label={icon.label}
+                          title={icon.label}
+                          aria-pressed={logo.icon === icon.id}
+                          className={`flex h-11 w-11 items-center justify-center rounded-lg border transition-colors ${
+                            logo.icon === icon.id ? 'border-brand ring-2 ring-brand' : 'border-border hover:border-brand/40'
+                          }`}
+                        >
+                          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d={icon.path} style={{ fill: logo.color }} />
+                          </svg>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
               <div className="space-y-2">
                 <Label>Color</Label>
