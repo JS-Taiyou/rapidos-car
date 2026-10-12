@@ -45,12 +45,25 @@ const planSegmentSchema = z
     returnZone: z.string().nullable().optional(),
     extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).optional(),
     vehicleId: z.number().int().optional(), // placa elegida a mano
+    // Tarifa diaria fija SOLO para este tramo (centavos) — el ajuste por
+    // vehículo que el staff pacta en el momento. Gana sobre overrides.dailyRateCents.
+    dailyRateCents: z.number().int().min(0).optional(),
   })
   .refine((d) => d.end > d.start, { message: 'La devolución debe ser posterior a la entrega' });
+
+// "En lugar de $X, le cobro $Y": el TOTAL del plan (IVA incluido) se fija a
+// mano y la diferencia baja como descuento prorrateado por tramo (mayor
+// resto al centavo), cada uno con su desglose y razón. Sólo para BAJAR el
+// total — para subirlo se ajustan las tarifas por tramo.
+const totalOverrideSchema = z.object({
+  cents: z.number().int().min(1),
+  reason: z.string().min(3, 'Escribe el motivo del ajuste'),
+});
 
 const replanSchema = z.object({
   segments: z.array(planSegmentSchema).min(1).max(6),
   overrides: pricingOverridesSchema.optional(),
+  totalOverride: totalOverrideSchema.optional(),
 });
 
 function json(data: unknown, status = 200): Response {
@@ -143,6 +156,8 @@ interface ResolvedStep {
   totalCents: number;
   pricing: ReturnType<typeof buildPricingRecord>;
   keptUnit: boolean;
+  /** Tarifa efectiva del tramo (pactada o catálogo). */
+  appliedRateCents: number;
 }
 
 interface PlanResolution {
@@ -152,6 +167,9 @@ interface PlanResolution {
   discountPct: number;
   errors: Array<{ index: number; message: string }>;
   alternatives: Record<number, Array<{ slug: string; name: string; dailyRateCents: number; totalCents: number; deltaCents: number }>>;
+  /** "En lugar de $X cobro $Y": lo pactado y lo que realmente quedó (si el
+   * clamp por extras mordió, difieren — el preview lo enseña). */
+  totalOverride?: { requestedCents: number; appliedCents: number; reason: string };
 }
 
 async function resolvePlan(
@@ -202,7 +220,27 @@ async function resolvePlan(
     if (daysTotal >= rule.minDays) discountPct = Math.max(discountPct, rule.pct);
   }
 
-  const steps: ResolvedStep[] = [];
+  // ---- FASE A: resolución por tramo (modelo/unidad/zonas + tarifa) -------
+  // La cotización final requiere saber TODOS los subtotales primero (el
+  // ajuste del total del plan se reparte entre tramos), así que aquí sólo se
+  // resuelve inventario y se cotiza SIN descuentos (con la tarifa pactada).
+  interface Draft {
+    planIndex: number;
+    planId: number | null;
+    model: ModelAvailability & { id: number };
+    start: Date;
+    end: Date;
+    pickupZone: string;
+    returnZone: string;
+    extras: Array<{ id: number; qty: number }>;
+    unitId: number | null;
+    keptUnit: boolean;
+    base: ReturnType<typeof computeQuote>;
+    rateOverrides: { dailyRateCents?: number };
+    sinDescuento: { subtotalCents: number; extrasCents: number; deliveryFeeCents: number; totalCents: number };
+  }
+  const drafts: Draft[] = [];
+
   for (let i = 0; i < plan.segments.length; i++) {
     const p = plan.segments[i];
     const model = await fetchModel(sqlTx, p.modelSlug);
@@ -214,7 +252,7 @@ async function resolvePlan(
     // Zonas: las del tramo original si viene id; si no, las del último tramo
     // previo del plan (o el último existente para el primero).
     const prevSeg = p.id !== undefined ? live.find((s) => s.id === p.id) : undefined;
-    const lastKnown = steps.at(-1) ?? null;
+    const lastKnown = drafts.at(-1) ?? null;
     const fallbackZone = prevSeg?.pickup_zone ?? lastKnown?.pickupZone ?? live[0]?.pickup_zone ?? 'office';
     const pickupZone = p.pickupZone ?? fallbackZone;
     const inheritedReturn = p.id !== undefined ? (prevSeg?.return_zone ?? null) : null;
@@ -242,46 +280,20 @@ async function resolvePlan(
       unitId = await pickFreeUnit(sqlTx, p.modelSlug, p.start, p.end, buffer, bookingId);
     }
 
-    // Cotización del tramo: base del motor + overrides del staff (si los
-    // hay) + descuento de renta larga (total de días) si no hay descuento
-    // manual que lo reemplace.
     const extras = p.extras ?? prevSeg?.extras.filter((e) => e.id !== undefined).map((e) => ({ id: e.id!, qty: e.qty })) ?? [];
     const base = computeQuote(model, p.start, p.end, pickupZone, extras, ctx, returnZone);
-    const overrides = { ...plan.overrides };
-    if (!overrides.discount && discountPct > 0) {
-      overrides.discount = { kind: 'pct', value: discountPct };
-    }
-    const quote = applyPricingOverrides(base, model, p.start, p.end, overrides, ctx);
-    const catalog = ctx.extrasCatalog;
-    const pricing = buildPricingRecord(quote, {
-      dailyRateCents: overrides.dailyRateCents ?? model.dailyRateCents,
-      extras: extras.map((sel) => {
-        const cat = catalog.find((e) => e.id === sel.id);
-        return {
-          id: sel.id,
-          name: cat?.name ?? `extra ${sel.id}`,
-          priceCents: cat?.priceCents ?? 0,
-          per: cat?.per ?? ('rental' as const),
-          qty: sel.qty,
-        };
-      }),
-      pickupZone,
-      discount: overrides.discount
-        ? {
-            ...overrides.discount,
-            cents: base.subtotalCents - quote.subtotalCents,
-            reason:
-              overrides.discount.kind === 'pct' && overrides.discount.value === discountPct && !plan.overrides?.discount
-                ? `Renta larga: ${daysTotal} días en total`
-                : (overrides.reason ?? ''),
-          }
-        : quote.discountPct > 0
-          ? { kind: 'auto' }
-          : { kind: 'none' },
-      source: 'adjust',
-      reason: overrides.reason ?? 'Replan de la renta (extensión/cambio de vehículo)',
-      editedBy: undefined, // lo pone el caller con el admin real
-    });
+    // Tarifa de ESTE tramo: la pactada gana sobre la global del staff.
+    const rate = p.dailyRateCents ?? plan.overrides?.dailyRateCents;
+    // Cotización sin ningún descuento (pct 0 explícito aplasta el auto del
+    // tramo): de aquí salen los subtotales para el reparto del ajuste total.
+    const sinDescuento = applyPricingOverrides(
+      base,
+      model,
+      p.start,
+      p.end,
+      { ...(rate !== undefined ? { dailyRateCents: rate } : {}), discount: { kind: 'pct', value: 0 } },
+      ctx,
+    );
 
     if (unitId === null) {
       // Sin unidad para ESTE tramo: alternativas con unidad libre (mismo
@@ -317,14 +329,15 @@ async function resolvePlan(
           name: r.name as string,
           dailyRateCents: daily,
           totalCents: altQuote.totalCents,
-          deltaCents: altQuote.totalCents - quote.totalCents,
+          deltaCents: altQuote.totalCents - sinDescuento.totalCents,
         };
       });
       errors.push({ index: i, message: `Sin unidades de ${model.name} disponibles en ese período.` });
       continue;
     }
 
-    steps.push({
+    drafts.push({
+      planIndex: i,
       planId: p.id ?? null,
       model,
       start: p.start,
@@ -333,13 +346,134 @@ async function resolvePlan(
       returnZone,
       extras,
       unitId,
-      totalCents: quote.totalCents,
-      pricing,
       keptUnit,
+      base,
+      rateOverrides: rate !== undefined ? { dailyRateCents: rate } : {},
+      sinDescuento: {
+        subtotalCents: sinDescuento.subtotalCents,
+        extrasCents: sinDescuento.extrasCents,
+        deliveryFeeCents: sinDescuento.deliveryFeeCents,
+        totalCents: sinDescuento.totalCents,
+      },
     });
   }
 
-  return { steps, removed, daysTotal, discountPct, errors, alternatives };
+  // ---- FASE B: el descuento que comerá cada tramo -------------------------
+  // Prioridad: ajuste del TOTAL del plan > descuento manual del staff >
+  // renta larga (total de días). El ajuste total se traduce a un descuento
+  // por MONTO repartido entre tramos proporcional a sus subtotales de días,
+  // con mayor-resto para cerrar al centavo (Σd_i = D exacto).
+  const iva = ctx.settings.ivaRate;
+  const reparto = new Map<number, number>(); // planIndex → descuento en centavos
+  let totalOverrideInfo: PlanResolution['totalOverride'];
+  if (plan.totalOverride) {
+    const T = plan.totalOverride.cents;
+    const S = drafts.reduce((t, d) => t + d.sinDescuento.subtotalCents, 0);
+    const EF = drafts.reduce((t, d) => t + d.sinDescuento.extrasCents + d.sinDescuento.deliveryFeeCents, 0);
+    const planTotal = Math.round((S + EF) * (1 + iva));
+    const target = Math.round(T / (1 + iva));
+    let D = S + EF - target;
+    if (D < 0) {
+      errors.push({
+        index: -1,
+        message: `El total ajustado (${(T / 100).toFixed(2)}) supera el total del plan (${(planTotal / 100).toFixed(2)}). Para subir el precio, ajusta las tarifas por tramo.`,
+      });
+    } else {
+      // El ajuste sólo descuenta días, nunca extras/entrega (quedan intactos):
+      // si pidiera más, se recorta y el preview enseña el total real.
+      const clamped = Math.min(D, S);
+      const base_i = drafts.map((d) => Math.floor((clamped * d.sinDescuento.subtotalCents) / S));
+      let resto = clamped - base_i.reduce((a, b) => a + b, 0);
+      const porFrac = drafts
+        .map((d, i) => ({ i, frac: (clamped * d.sinDescuento.subtotalCents) % S }))
+        .sort((a, b) => b.frac - a.frac);
+      for (const { i } of porFrac) {
+        if (resto <= 0) break;
+        base_i[i] += 1;
+        resto -= 1;
+      }
+      drafts.forEach((d, i) => reparto.set(d.planIndex, base_i[i]));
+    }
+  }
+
+  // ---- FASE C: cotización final por tramo ---------------------------------
+  const catalog = ctx.extrasCatalog;
+  const steps: ResolvedStep[] = drafts.map((d) => {
+    const overridesFinal: { dailyRateCents?: number; discount?: { kind: 'pct' | 'amount'; value: number } } = {
+      ...d.rateOverrides,
+    };
+    let discountReason = plan.overrides?.reason ?? 'Replan de la renta (extensión/cambio de vehículo)';
+    if (reparto.has(d.planIndex)) {
+      overridesFinal.discount = { kind: 'amount', value: reparto.get(d.planIndex)! };
+      discountReason = `Ajuste de plan: ${plan.totalOverride!.reason}`;
+    } else if (plan.overrides?.discount) {
+      overridesFinal.discount = plan.overrides.discount;
+    } else if (discountPct > 0) {
+      overridesFinal.discount = { kind: 'pct', value: discountPct };
+      discountReason = `Renta larga: ${daysTotal} días en total`;
+    }
+    const quote = applyPricingOverrides(d.base, d.model, d.start, d.end, overridesFinal, ctx);
+    const pricing = buildPricingRecord(quote, {
+      dailyRateCents: overridesFinal.dailyRateCents ?? d.model.dailyRateCents,
+      extras: d.extras.map((sel) => {
+        const cat = catalog.find((e) => e.id === sel.id);
+        return {
+          id: sel.id,
+          name: cat?.name ?? `extra ${sel.id}`,
+          priceCents: cat?.priceCents ?? 0,
+          per: cat?.per ?? ('rental' as const),
+          qty: sel.qty,
+        };
+      }),
+      pickupZone: d.pickupZone,
+      discount: overridesFinal.discount
+        ? { ...overridesFinal.discount, cents: d.base.subtotalCents - quote.subtotalCents, reason: discountReason }
+        : quote.discountPct > 0
+          ? { kind: 'auto' }
+          : { kind: 'none' },
+      source: 'adjust',
+      reason: discountReason,
+      editedBy: undefined, // lo pone el caller con el admin real
+    });
+    return {
+      planId: d.planId,
+      model: d.model,
+      start: d.start,
+      end: d.end,
+      pickupZone: d.pickupZone,
+      returnZone: d.returnZone,
+      extras: d.extras,
+      unitId: d.unitId,
+      totalCents: quote.totalCents,
+      pricing,
+      keptUnit: d.keptUnit,
+      appliedRateCents: overridesFinal.dailyRateCents ?? d.model.dailyRateCents,
+    };
+  });
+
+  if (plan.totalOverride && errors.every((e) => e.index !== -1)) {
+    // Cuadre al centavo: el redondeo de IVA POR TRAMO puede dejar ±1-2¢ de
+    // deriva contra el total pactado; la diferencia se asienta en el IVA del
+    // tramo más caro (parche de redondeo, igual que cierra un contador).
+    const T = plan.totalOverride.cents;
+    let suma = steps.reduce((t, s) => t + s.totalCents, 0);
+    const delta = T - suma;
+    if (delta !== 0 && steps.length > 0) {
+      const biggest = steps.reduce((a, b) => (b.totalCents > a.totalCents ? b : a));
+      biggest.totalCents += delta;
+      const p = biggest.pricing as unknown as Record<string, number>;
+      p.taxCents = (p.taxCents ?? 0) + delta;
+      p.totalCents = (p.totalCents ?? 0) + delta;
+      suma += delta;
+    }
+    totalOverrideInfo = {
+      requestedCents: plan.totalOverride.cents,
+      appliedCents: suma,
+      reason: plan.totalOverride.reason,
+    };
+  }
+
+  return { steps, removed, daysTotal, discountPct, errors, alternatives, totalOverride: totalOverrideInfo };
 }
 
 async function readBooking(sqlTx: Sql, id: number) {
@@ -385,9 +519,12 @@ export async function POST(context: APIContext): Promise<Response> {
           days: number;
           totalCents: number;
           keptUnit: boolean;
+          catalogRateCents: number;
+          appliedRateCents: number;
         }>;
         removedSegments: Array<{ segmentId: number; idx: number }>;
         totals: { currentCents: number; proposedCents: number; deltaCents: number };
+        totalOverride?: { requestedCents: number; appliedCents: number; reason: string };
       };
   const resolution = await sql.begin(async (sqlTx): Promise<PreviewResult> => {
     const booking = await readBooking(sqlTx, id);
@@ -417,9 +554,12 @@ export async function POST(context: APIContext): Promise<Response> {
         days: Math.max(1, Math.ceil((st.end.getTime() - st.start.getTime()) / 86_400_000)),
         totalCents: st.totalCents,
         keptUnit: st.keptUnit,
+        catalogRateCents: st.model.dailyRateCents,
+        appliedRateCents: st.appliedRateCents,
       })),
       removedSegments: res.removed.map((s) => ({ segmentId: s.id, idx: s.idx })),
       totals: { currentCents: currentTotal, proposedCents: proposedTotal, deltaCents: proposedTotal - currentTotal },
+      totalOverride: res.totalOverride,
     };
   });
   if ('notFound' in resolution) return json({ error: 'not_found' }, 404);
@@ -527,7 +667,7 @@ export async function PUT(context: APIContext): Promise<Response> {
         WHERE s.booking_id = ${id}
         ORDER BY s.idx
       `;
-      return { applied, after, before };
+      return { applied, after, before, totalOverride: resolution.totalOverride };
     });
 
     if ('notFound' in result) return json({ error: 'not_found' }, 404);
@@ -538,9 +678,12 @@ export async function PUT(context: APIContext): Promise<Response> {
       action: 'replan',
       entity: 'booking',
       entityId: id,
-      summary: `Renta replanificada: ${result.before.filter((s) => s.status !== 'cancelled').length} → ${result.after.filter((s) => s.status !== 'cancelled').length} tramo(s) vivos`,
+      summary:
+        `Renta replanificada: ${result.before.filter((s) => s.status !== 'cancelled').length} → ${result.after.filter((s) => s.status !== 'cancelled').length} tramo(s) vivos` +
+        (result.totalOverride ? ` · total ajustado a ${(result.totalOverride.appliedCents / 100).toFixed(2)} (${result.totalOverride.reason})` : ''),
       diff: {
         segments: { before: result.before, after: result.after },
+        ...(result.totalOverride ? { totalOverride: { after: result.totalOverride } } : {}),
       },
     }, context);
     return json({ ok: true, segments: result.after });

@@ -1268,6 +1268,7 @@ interface PlanRow {
   modelSlug: string;
   start: string; // datetime-local
   end: string;
+  rate?: string; // tarifa/día pactada para ESTE tramo (pesos; vacío = catálogo)
 }
 
 interface PlanPreview {
@@ -1276,8 +1277,17 @@ interface PlanPreview {
   alternatives: Record<number, Array<{ slug: string; name: string; dailyRateCents: number; totalCents: number; deltaCents: number }>>;
   daysTotal: number;
   discountPct: number;
-  segments: Array<{ index: number; model: string; days: number; totalCents: number; keptUnit: boolean }>;
+  segments: Array<{
+    index: number;
+    model: string;
+    days: number;
+    totalCents: number;
+    keptUnit: boolean;
+    catalogRateCents: number;
+    appliedRateCents: number;
+  }>;
   totals: { currentCents: number; proposedCents: number; deltaCents: number };
+  totalOverride?: { requestedCents: number; appliedCents: number; reason: string };
 }
 
 function toLocalInput(iso: string): string {
@@ -1309,6 +1319,9 @@ function ReplanDialog({
   const [preview, setPreview] = useState<PlanPreview | null>(null);
   const [validating, setValidating] = useState(false);
   const [applying, setApplying] = useState(false);
+  // "En lugar de $X, le cobro $Y": total final del plan (IVA incluido) + motivo.
+  const [chargeTotal, setChargeTotal] = useState('');
+  const [chargeReason, setChargeReason] = useState('');
 
   const setRow = (i: number, patch: Partial<PlanRow>) => {
     setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -1329,7 +1342,11 @@ function ReplanDialog({
       modelSlug: r.modelSlug,
       start: new Date(r.start).toISOString(),
       end: new Date(r.end).toISOString(),
+      ...(r.rate && r.rate.trim() !== '' ? { dailyRateCents: Math.round(Number(r.rate) * 100) } : {}),
     })),
+    ...(chargeTotal.trim() !== ''
+      ? { totalOverride: { cents: Math.round(Number(chargeTotal) * 100), reason: chargeReason } }
+      : {}),
   });
 
   async function validate() {
@@ -1342,6 +1359,11 @@ function ReplanDialog({
       });
       if (res.status === 401) {
         window.location.href = '/admin/login';
+        return;
+      }
+      if (res.status === 400) {
+        const data = (await res.json().catch(() => ({}))) as { issues?: Array<{ message: string }> };
+        toast.error(data.issues?.[0]?.message ?? 'Revisa los campos del plan');
         return;
       }
       setPreview((await res.json()) as PlanPreview);
@@ -1433,6 +1455,22 @@ function ReplanDialog({
                   onChange={(e) => setRow(i, { end: e.target.value })}
                 />
               </div>
+              <div>
+                <Input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  placeholder={
+                    preview?.segments.find((ps) => ps.index === i)
+                      ? `Tarifa ${moneyFmt.format((preview.segments.find((ps) => ps.index === i)!.appliedRateCents) / 100)}/día (catálogo ${(preview.segments.find((ps) => ps.index === i)!.catalogRateCents / 100).toFixed(0)})`
+                      : 'Tarifa/día pactada (opcional)'
+                  }
+                  className="h-9"
+                  aria-label={`Tarifa por día del tramo ${i + 1} (vacío = catálogo)`}
+                  value={row.rate ?? ''}
+                  onChange={(e) => setRow(i, { rate: e.target.value })}
+                />
+              </div>
               {preview?.errors
                 .filter((e) => e.index === i)
                 .map((e) => (
@@ -1468,6 +1506,55 @@ function ReplanDialog({
           )}
         </div>
 
+        {preview?.errors
+          .filter((e) => e.index === -1)
+          .map((e) => (
+            <p key={e.message} className="rounded-lg bg-red-50 px-3 py-2 text-sm text-destructive">
+              ⚠ {e.message}
+            </p>
+          ))}
+
+        {/* Ajuste del cobro: precio preferencial cerrado en el momento. El
+            total del plan (con tarifas pactadas) se recotiza al vuelo. */}
+        <div className="space-y-2 rounded-xl border border-dashed p-3">
+          <p className="text-sm font-medium">Ajuste del cobro (opcional)</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                placeholder={preview ? `Cobrar ${moneyFmt.format(preview.totals.proposedCents / 100)} (total del plan)` : 'Cobrar total $ (IVA incl.)'}
+                value={chargeTotal}
+                onChange={(e) => {
+                  setChargeTotal(e.target.value);
+                  setPreview(null);
+                }}
+                aria-label="Total a cobrar en lugar del total del plan"
+              />
+            </div>
+            <div className="space-y-1">
+              <Input
+                placeholder="Motivo del ajuste (obligatorio)"
+                value={chargeReason}
+                onChange={(e) => {
+                  setChargeReason(e.target.value);
+                  setPreview(null);
+                }}
+                aria-label="Motivo del ajuste del cobro"
+                disabled={chargeTotal.trim() === ''}
+              />
+            </div>
+          </div>
+          {chargeTotal.trim() !== '' && chargeReason.trim().length < 3 && (
+            <p className="text-xs text-destructive">El ajuste del total requiere motivo.</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            El total pactado baja como descuento repartido entre los tramos (nunca por encima del plan: para subir,
+            ajusta tarifas por tramo).
+          </p>
+        </div>
+
         {preview && preview.ok && (
           <div className="rounded-xl border-2 border-brand/30 bg-brand-soft/40 p-4 text-sm">
             <p className="font-bold text-brand-dark">Plan resultante</p>
@@ -1475,6 +1562,11 @@ function ReplanDialog({
               {preview.segments.map((s) => (
                 <li key={s.index}>
                   {s.index + 1}. {s.days} día(s) {s.model} — {moneyFmt.format(s.totalCents / 100)}
+                  {s.appliedRateCents !== s.catalogRateCents && (
+                    <span className="ml-1 text-xs text-amber-700" title="Tarifa pactada para este tramo">
+                      · {moneyFmt.format(s.appliedRateCents / 100)}/d pactada
+                    </span>
+                  )}
                   {s.keptUnit && <span className="ml-1 text-xs text-muted-foreground">(misma placa)</span>}
                 </li>
               ))}
@@ -1486,7 +1578,12 @@ function ReplanDialog({
                 {moneyFmt.format(Math.abs(delta) / 100)} vs actual
               </span>
             </p>
-            {preview.discountPct > 0 && (
+            {preview.totalOverride && (
+              <p className="mt-1 text-xs font-medium text-emerald-800">
+                Cobro ajustado: {moneyFmt.format(preview.totalOverride.appliedCents / 100)} — {preview.totalOverride.reason}
+              </p>
+            )}
+            {preview.discountPct > 0 && !preview.totalOverride && (
               <p className="mt-1 text-xs text-muted-foreground">
                 Incluye {preview.discountPct}% de descuento por renta larga ({preview.daysTotal} días en total).
               </p>
