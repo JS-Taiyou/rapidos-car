@@ -5,6 +5,8 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { useTranslations } from '../../i18n/utils';
 
+
+export const prerender = false;
 const t = useTranslations('en');
 
 const questions = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({

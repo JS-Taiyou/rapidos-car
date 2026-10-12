@@ -19,6 +19,7 @@ import { bookingInputSchema, generateBookingCode } from '../../lib/validation';
 import { buildWhatsAppUrl, bookingConfirmationMessage } from '../../lib/whatsapp';
 import { broadcastNewBooking } from '../../lib/alerts';
 import { linkBookingToCustomer } from '../../lib/customers';
+import { getTenant } from '../../lib/tenant';
 
 export const prerender = false;
 
@@ -274,10 +275,11 @@ export async function POST(context: APIContext): Promise<Response> {
         depositCents: depositType === 'deposit' ? booking.quote.depositCents : 0,
       },
       lang,
+      (await getTenant()).name,
     );
     // El deep link wa.me ES la notificación del MVP (spec §5): el mensaje
     // sale del teléfono del cliente hacia el negocio.
-    const whatsappUrl = buildWhatsAppUrl(message, ctx.settings.whatsappStaffNumber);
+    const whatsappUrl = buildWhatsAppUrl(message, (await getTenant()).staffWhatsapp);
 
     return json(
       {

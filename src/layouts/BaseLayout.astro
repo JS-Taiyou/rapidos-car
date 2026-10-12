@@ -7,6 +7,7 @@ import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { ClientRouter } from 'astro:transitions';
+import { getTenant } from '../lib/tenant';
 import { business } from '../lib/business';
 import type { Lang } from '../i18n/utils';
 
@@ -34,18 +35,15 @@ const enUrl = lang === 'en' ? canonicalUrl : alternateFull;
 
 // JSON-LD con datos del negocio (fuente única: business.ts). Campos marcados
 // TODO se confirman con el dueño antes de publicar.
+const tenant = await getTenant();
 const jsonLd = {
   '@context': 'https://schema.org',
   '@type': ['AutoRental', 'LocalBusiness'],
-  name: business.name,
-  telephone: business.phone,
+  name: tenant.name,
+  telephone: tenant.phones[0] ?? undefined,
   address: {
     '@type': 'PostalAddress',
-    streetAddress: business.address.street,
-    addressLocality: business.address.locality,
-    addressRegion: business.address.region,
-    postalCode: business.address.postalCode,
-    addressCountry: business.address.country,
+    streetAddress: tenant.addressDisplay ?? undefined,
   },
   geo: {
     '@type': 'GeoCoordinates',

@@ -1,11 +1,11 @@
-// /api/admin/settings — GET valores de configuración · PATCH edición.
-// Primer campo: whatsapp_staff_number (la cuenta que recibe confirmaciones
-// de reservas vía wa.me). Vive en la tabla settings (runtime, sin rebuild);
-// el placeholder del seed nunca debió requerir SQL para cambiarse.
+// /api/admin/settings — GET perfil del tenant · PATCH edición (spec §4.5).
+// Claves tenant.* en la tabla settings (runtime, sin rebuild); el cache de
+// tenant.ts se invalida al guardar. Whitelist estricta de campos.
 import type { APIContext } from 'astro';
 import { z } from 'zod';
 import { sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
+import { invalidateTenantCache, getTenant } from '../../../lib/tenant';
 
 export const prerender = false;
 
@@ -16,24 +16,32 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-async function loadSettings(): Promise<Record<string, unknown>> {
-  const rows = await sql`SELECT key, value FROM settings`;
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
-}
+const waDigits = z.string().regex(/^\d{10,15}$/, 'Formato wa.me: 10-15 dígitos con código de país (ej. 5219991234567)');
+const logoSchema = z.object({
+  type: z.enum(['icon', 'image']),
+  icon: z.enum(['bolt', 'car', 'key', 'pin']).default('bolt'),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color hex (ej. #0e7490)').default('#0e7490'),
+  url: z.string().min(1).optional(),
+});
+
+const settingsPatchSchema = z.object({
+  name: z.string().min(2).max(60).optional(),
+  email: z.string().email().nullable().optional(),
+  address: z.string().min(4).nullable().optional(),
+  phones: z.array(z.string().min(6).max(24)).max(5).optional(),
+  // Vacío = ocultar botones públicos de WhatsApp explícitamente.
+  publicWhatsapp: waDigits.nullable().or(z.literal('')).optional(),
+  staffWhatsapp: waDigits.optional(),
+  // https://m.me/<pagina>; vacío = ocultar.
+  messengerUrl: z.string().regex(/^https:\/\/(m\.me|www\.messenger\.com)\/[A-Za-z0-9.\-_]+$/, 'URL de m.me (ej. https://m.me/mipagina)').nullable().or(z.literal('')).optional(),
+  logo: logoSchema.optional(),
+});
 
 export async function GET(context: APIContext): Promise<Response> {
   const admin = await requireAdminApi(context.cookies);
   if (!admin) return json({ error: 'unauthorized' }, 401);
-  return json({ settings: await loadSettings() });
+  return json({ tenant: await getTenant() });
 }
-
-// Sólo los campos que el panel sabe editar (whitelist): capturar campos
-// arbitrarios aquí sería un backdoor de configuración.
-const settingsPatchSchema = z.object({
-  whatsappStaffNumber: z
-    .string()
-    .regex(/^\d{10,15}$/, 'Formato wa.me: 10-15 dígitos con código de país, sin + ni espacios (ej. 5219991234567)'),
-});
 
 export async function PATCH(context: APIContext): Promise<Response> {
   const admin = await requireAdminApi(context.cookies);
@@ -50,12 +58,35 @@ export async function PATCH(context: APIContext): Promise<Response> {
   if (!parsed.success) {
     return json({ error: 'validation', issues: parsed.error.issues }, 400);
   }
+  const d = parsed.data;
 
-  await sql`
-    INSERT INTO settings (key, value) VALUES ('whatsapp_staff_number', ${parsed.data.whatsappStaffNumber}::jsonb)
-    ON CONFLICT (key) DO UPDATE SET value = ${parsed.data.whatsappStaffNumber}::jsonb
-  `;
-  return json({ settings: await loadSettings() });
+  // Upsert clave → valor jsonb (los null se guardan como string vacío, que
+  // significa "configurado en vacío", distinto de "nunca configurado").
+  // valores construidos por nosotros: cast directo a jsonb
+  const upsert = async (key: string, value: unknown) => {
+    const v = JSON.parse(JSON.stringify(value ?? '')) as string;
+    await sql`
+      INSERT INTO settings (key, value) VALUES (${key}, ${v}::jsonb)
+      ON CONFLICT (key) DO UPDATE SET value = ${v}::jsonb
+    `;
+  };
+
+  try {
+    if (d.name !== undefined) await upsert('tenant.name', d.name);
+    if (d.email !== undefined) await upsert('tenant.email', d.email ?? '');
+    if (d.address !== undefined) await upsert('tenant.address', d.address ?? '');
+    if (d.phones !== undefined) await upsert('tenant.phones', d.phones);
+    if (d.publicWhatsapp !== undefined) await upsert('tenant.whatsapp', d.publicWhatsapp ?? '');
+    if (d.staffWhatsapp !== undefined) await upsert('tenant.staff_whatsapp', d.staffWhatsapp);
+    if (d.messengerUrl !== undefined) await upsert('tenant.messenger', d.messengerUrl ?? '');
+    if (d.logo !== undefined) await upsert('tenant.logo', d.logo);
+  } catch (err) {
+    console.error('PATCH /api/admin/settings falló:', err);
+    return json({ error: 'internal' }, 500);
+  }
+
+  invalidateTenantCache();
+  return json({ tenant: await getTenant() });
 }
 
 export function ALL(): Response {

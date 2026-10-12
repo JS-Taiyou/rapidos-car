@@ -6,13 +6,14 @@ import { getSessionUser, SESSION_COOKIE } from '../../lib/auth';
 import { sql } from '../../lib/db';
 import '../../styles/global.css';
 import LoginForm from '../../components/react/admin/LoginForm.tsx';
-import { business } from '../../lib/business';
+import { getTenant } from '../../lib/tenant';
 
 export const prerender = false;
 
 // Sesión ya válida → al panel, sin volver a ver el formulario (un re-login
 // innecesario siembra sesiones duplicadas).
 const token = Astro.cookies.get(SESSION_COOKIE)?.value;
+const tenant = await getTenant();
 if (token) {
   const user = await getSessionUser(sql, token);
   if (user) return Astro.redirect('/admin');
@@ -33,7 +34,7 @@ if (token) {
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
         </svg>
-        {business.name}
+        {tenant.name}
       </h1>
       <p class="mb-6 mt-1 text-sm text-muted-foreground">Panel interno</p>
       <LoginForm client:load />

@@ -1,9 +1,10 @@
 ---
-// Admin — Ajustes (/admin/ajustes) — SSR: guardia + lectura inicial del
-// settings; la isla SettingsEditor guarda vía PATCH. Primer campo del
-// spec §4.5: WhatsApp del staff (runtime, sin rebuild).
+// Admin — Ajustes (/admin/ajustes) — perfil del tenant en runtime:
+// identidad, mensajería (WhatsApp público/staff, Messenger) y logo. La
+// isla guarda vía PATCH /api/admin/settings y el sitio refleja al instante
+// (cache de tenant invalidado).
 import { requireAdmin } from '../../lib/auth';
-import { sql } from '../../lib/db';
+import { getTenant } from '../../lib/tenant';
 import AdminNav from '../../components/admin/AdminNav.astro';
 import SettingsEditor from '../../components/react/admin/SettingsEditor.tsx';
 import '../../styles/global.css';
@@ -13,8 +14,7 @@ export const prerender = false;
 const admin = await requireAdmin(Astro);
 if (admin instanceof Response) return admin;
 
-const rows = await sql`SELECT value FROM settings WHERE key = 'whatsapp_staff_number'`;
-const initialNumber = String(rows[0]?.value ?? '');
+const tenant = await getTenant();
 ---
 
 <!doctype html>
@@ -23,17 +23,25 @@ const initialNumber = String(rows[0]?.value ?? '');
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>Ajustes — Rapidoz Admin</title>
+    <title>Ajustes — {tenant.name} Admin</title>
   </head>
   <body class="min-h-screen bg-muted/30">
     <AdminNav />
-    <main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
+    <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
       <h1 class="text-2xl font-bold tracking-tight">Ajustes</h1>
-      <SettingsEditor client:load initialNumber={initialNumber} />
-      <p class="max-w-md text-xs text-muted-foreground">
-        El WhatsApp público del sitio (CTAs de contacto) es parte del perfil del tenant en
-        <code class="mx-1">src/lib/business.ts</code> y cambia al recompilar.
-      </p>
+      <SettingsEditor
+        client:load
+        tenant={{
+          name: tenant.name,
+          email: tenant.email ?? '',
+          address: tenant.addressDisplay ?? '',
+          phones: tenant.phones,
+          publicWhatsapp: tenant.publicWhatsapp ?? '',
+          staffWhatsapp: tenant.staffWhatsapp,
+          messengerUrl: tenant.messengerUrl ?? '',
+          logo: tenant.logo,
+        }}
+      />
     </main>
   </body>
 </html>

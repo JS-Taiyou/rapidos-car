@@ -36,6 +36,8 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: 'invalid_form' }, 400);
   }
 
+  // dest: 'fleet' (900px) | 'logo' (256px contain) — misma vía de subida.
+  const dest = form.get('dest') === 'logo' ? 'logo' : 'fleet';
   const files = form.getAll('photos').filter((f): f is File => f instanceof File);
   if (files.length === 0) return json({ error: 'no_files' }, 400);
   if (files.length > MAX_FILES) return json({ error: 'too_many_files' }, 400);
@@ -43,8 +45,8 @@ export async function POST(context: APIContext): Promise<Response> {
   // Nunca confiar en el nombre del cliente: nombre aleatorio + extensión
   // canónica (sharp SIEMPRE emite WebP; la extensión del original solo se
   // usa como sanity check del content-type).
-  const fleetDir = join(UPLOAD_DIR, 'fleet');
-  await mkdir(fleetDir, { recursive: true });
+  const destDir = join(UPLOAD_DIR, dest);
+  await mkdir(destDir, { recursive: true });
 
   const paths: string[] = [];
   try {
@@ -59,15 +61,19 @@ export async function POST(context: APIContext): Promise<Response> {
       let optimized: Buffer;
       try {
         optimized = await sharp(buffer)
-          .resize({ width: 900, withoutEnlargement: true })
+          .resize(
+            dest === 'logo'
+              ? { width: 256, height: 256, fit: 'inside', withoutEnlargement: true }
+              : { width: 900, withoutEnlargement: true },
+          )
           .webp({ quality: 72 })
           .toBuffer();
       } catch {
         return json({ error: 'not_an_image', name: file.name }, 400);
       }
       const name = `${crypto.randomUUID()}.webp`;
-      await writeFile(join(fleetDir, name), optimized);
-      paths.push(`/uploads/fleet/${name}`);
+      await writeFile(join(destDir, name), optimized);
+      paths.push(`/uploads/${dest}/${name}`);
     }
   } catch (err) {
     console.error('POST /api/admin/vehicles/photos falló:', err);

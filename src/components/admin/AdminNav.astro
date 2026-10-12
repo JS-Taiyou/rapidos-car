@@ -3,7 +3,9 @@
 // el receptor de alertas en vivo: EventSource a /api/admin/notifications
 // (sólo staff), beep-beep Web Audio + globito clicable por reservación
 // entrante. El botón "Salir" sigue siendo el script inline de 5 líneas.
-import { business } from '../../lib/business';
+import { getTenant } from '../../lib/tenant';
+
+const tenant = await getTenant();
 
 const current = Astro.url.pathname;
 const links = [
@@ -22,7 +24,7 @@ const links = [
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
       </svg>
-      {business.name} <span class="text-sm font-normal text-muted-foreground">Panel</span>
+      {tenant.name} <span class="text-sm font-normal text-muted-foreground">Panel</span>
     </a>
     <ul class="flex items-center gap-1">
       {

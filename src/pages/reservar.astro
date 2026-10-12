@@ -9,6 +9,8 @@ import { useTranslations } from '../i18n/utils';
 import { buildWhatsAppUrl } from '../lib/whatsapp';
 import { DELIVERY_ZONES } from '../lib/zones';
 
+
+export const prerender = false;
 const t = useTranslations('es');
 const whatsappFallback = buildWhatsAppUrl(t('booking.noscriptMessage'));
 ---

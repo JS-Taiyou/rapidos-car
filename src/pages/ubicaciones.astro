@@ -6,6 +6,8 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 
+
+export const prerender = false;
 const t = useTranslations('es');
 
 const feeFmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
