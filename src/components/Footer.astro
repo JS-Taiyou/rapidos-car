@@ -83,7 +83,7 @@ const whatsappUrl = buildWhatsAppUrl(t('footer.whatsappMessage'));
     <p class="mx-auto max-w-6xl px-4 text-center text-xs text-muted-foreground">
       © {year} {business.name}. {t('footer.rights')} · {t('footer.madeIn')}
       <span class="mx-1" aria-hidden="true">·</span>
-      Hecho con <span aria-hidden="true">💚</span> por
+      {lang === 'es' ? 'Hecho con' : 'Made with'} <span aria-hidden="true">💚</span> {lang === 'es' ? 'por' : 'by'}
       <a href={author.url} target="_blank" rel="noopener" class="font-medium hover:text-brand">
         {author.name}
       </a>

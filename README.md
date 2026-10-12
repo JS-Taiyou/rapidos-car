@@ -68,4 +68,4 @@ arrancar la réplica. Ver §8 de la arquitectura.
 
 ---
 
-Hecho con 💚 por [Jorge Solís](https://github.com/jpsb23).
+Hecho con 💚 por [Jorge Solís](https://github.com/JS-Taiyou).

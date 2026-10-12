@@ -3,7 +3,6 @@
 // y WhatsApp. REBRANDING = editar estos valores (o sobreescribirlos con
 // variables PUBLIC_* en .env antes de compilar) — nada más toca el código.
 //
-// ⚠ TODO: confirmar con el dueño la URL real del autor (GitHub/LinkedIn).
 export const business = {
   name: 'Rapidoz Rental',
   phone: '+529999999999',
@@ -31,5 +30,5 @@ export const bookingCodePrefix = 'RPZ';
 // Créditos del autor que se muestran en el footer público.
 export const author = {
   name: 'Jorge Solís',
-  url: 'https://github.com/jpsb23',
+  url: 'https://github.com/JS-Taiyou',
 } as const;
