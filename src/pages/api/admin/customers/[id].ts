@@ -34,15 +34,25 @@ async function loadCustomer(id: number) {
 }
 
 async function loadBookings(customerId: number) {
+  // Período agregado de la línea de tiempo (min lower → max upper) y
+  // modelo/placa del primer tramo (migración 006).
   return sql`
     SELECT b.id, b.code, b.status, b.kind, b.total_cents,
-           lower(b.period) AS period_start, upper(b.period) AS period_end,
-           m.name AS model_name, v.plate
+           agg.period_start, agg.period_end,
+           agg.model_name, agg.plate
     FROM bookings b
-    JOIN vehicles v ON v.id = b.vehicle_id
-    JOIN vehicle_models m ON m.id = v.model_id
+    LEFT JOIN LATERAL (
+      SELECT min(lower(s.period)) AS period_start,
+             max(upper(s.period)) AS period_end,
+             (array_agg(m.name ORDER BY s.idx))[1] AS model_name,
+             (array_agg(v.plate ORDER BY s.idx))[1] AS plate
+      FROM booking_segments s
+      JOIN vehicle_models m ON m.id = s.model_id
+      LEFT JOIN vehicles v ON v.id = s.vehicle_id
+      WHERE s.booking_id = b.id
+    ) agg ON true
     WHERE b.customer_id = ${customerId}
-    ORDER BY lower(b.period) DESC
+    ORDER BY agg.period_start DESC
     LIMIT 50
   `;
 }

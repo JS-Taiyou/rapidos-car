@@ -1,7 +1,9 @@
 // Motor de disponibilidad por unidad (spec §3.3). La disponibilidad se
 // CONSULTA por modelo pero se DECIDE por unidad: "quedan 2 Versa"; la
 // reservación amarra una placa concreta en la transacción (/api/bookings).
-// Esta función es consulta; la GARANTÍA es la constraint no_overlap (§2.9).
+// Esta función es consulta; la GARANTÍA es la constraint no_overlap_segment
+// de booking_segments (§2.9): desde la migración 006 la unidad vive en el
+// TRAMO, no en la cabecera de la renta.
 import type { Sql } from './db';
 import { sql as dbSql } from './db';
 
@@ -35,13 +37,17 @@ export async function findAvailableModels(start: Date, end: Date): Promise<Model
       ON v.model_id = m.id AND v.status = 'active'
     WHERE m.active = true
       AND NOT EXISTS (
-        SELECT 1 FROM bookings b
-        WHERE b.vehicle_id = v.id
-          AND b.status IN ('confirmed','active')
-          AND b.period && tstzrange(
+        SELECT 1
+        FROM booking_segments s
+        JOIN bookings b ON b.id = s.booking_id
+        WHERE s.vehicle_id = v.id
+          AND b.status <> 'cancelled'
+          AND s.status IN ('reserved','active')
+          AND s.period && tstzrange(
                 ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
                 ${end}::timestamptz   + (${bufferMinutes} || ' minutes')::interval,
-                '[)')
+                '[)'
+          )
       )
     GROUP BY m.id
     ORDER BY m.daily_rate_cents ASC
@@ -63,7 +69,8 @@ export async function findAvailableModels(start: Date, end: Date): Promise<Model
 // UPDATE: se llama DENTRO de la transacción de creación para que dos
 // requests no agarren la misma placa a la vez. Recibe `sql` por parámetro
 // porque dentro de una transacción se usa el sql transaccional, no el
-// singleton.
+// singleton. excludeBookingId excluye TODOS los tramos de esa renta (la
+// edición de un tramo no debe chocar con sus hermanos).
 export async function pickFreeUnit(
   sql: Sql,
   modelSlug: string,
@@ -80,14 +87,18 @@ export async function pickFreeUnit(
       AND m.active = true
       AND v.status = 'active'
       AND NOT EXISTS (
-        SELECT 1 FROM bookings b
-        WHERE b.vehicle_id = v.id
+        SELECT 1
+        FROM booking_segments s
+        JOIN bookings b ON b.id = s.booking_id
+        WHERE s.vehicle_id = v.id
           AND b.id <> ${excludeBookingId}
-          AND b.status IN ('confirmed','active')
-          AND b.period && tstzrange(
+          AND b.status <> 'cancelled'
+          AND s.status IN ('reserved','active')
+          AND s.period && tstzrange(
                 ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
                 ${end}::timestamptz   + (${bufferMinutes} || ' minutes')::interval,
-                '[)')
+                '[)'
+          )
       )
     ORDER BY v.id
     LIMIT 1
@@ -112,14 +123,18 @@ export async function isUnitFree(
     FROM vehicles v
     WHERE v.id = ${vehicleId}
       AND NOT EXISTS (
-        SELECT 1 FROM bookings b
-        WHERE b.vehicle_id = v.id
+        SELECT 1
+        FROM booking_segments s
+        JOIN bookings b ON b.id = s.booking_id
+        WHERE s.vehicle_id = v.id
           AND b.id <> ${excludeBookingId}
-          AND b.status IN ('confirmed','active')
-          AND b.period && tstzrange(
+          AND b.status <> 'cancelled'
+          AND s.status IN ('reserved','active')
+          AND s.period && tstzrange(
                 ${start}::timestamptz - (${bufferMinutes} || ' minutes')::interval,
                 ${end}::timestamptz   + (${bufferMinutes} || ' minutes')::interval,
-                '[)')
+                '[)'
+          )
       )
     FOR UPDATE OF v
   `;

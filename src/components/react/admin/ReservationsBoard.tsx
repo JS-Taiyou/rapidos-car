@@ -70,6 +70,20 @@ interface AdminBooking {
     totalCents?: number;
     reason?: string;
   } | null;
+  // Línea de tiempo de tramos (migración 006): una renta puede cambiar de
+  // vehículo a mitad. Los campos plate/model_name/period_* de arriba son la
+  // compat del PRIMER tramo.
+  segments?: Array<{
+    id: number;
+    idx: number;
+    status: string;
+    model_slug: string;
+    model_name: string;
+    plate: string | null;
+    period_start: string;
+    period_end: string;
+    total_cents: number;
+  }>;
 }
 
 interface UnitOption {
@@ -633,6 +647,21 @@ export default function ReservationsBoard() {
                   <TableCell>
                     <span className="font-mono text-xs">{b.plate}</span>
                     <span className="block text-xs text-muted-foreground">{b.model_name}</span>
+                    {(b.segments?.filter((s) => s.status !== 'cancelled').length ?? 0) > 1 && (
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {b.segments!
+                          .filter((s) => s.status !== 'cancelled')
+                          .map((s) => (
+                            <span
+                              key={s.id}
+                              className="rounded bg-muted px-1.5 py-0.5 text-[10px]"
+                              title={`${fmtShort(s.period_start)} → ${fmtShort(s.period_end)}${s.plate ? ` · ${s.plate}` : ''}`}
+                            >
+                              {s.idx}. {s.model_name}
+                            </span>
+                          ))}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-xs">
                     {dtFmt.format(new Date(b.period_start))}
@@ -1211,7 +1240,9 @@ export default function ReservationsBoard() {
 
 // Vista calendario A MANO (columnas = días del mes, filas = unidades): las
 // barras se posicionan por porcentaje dentro de la fila — FullCalendar pesa
-// ~300 kB y cobra uso comercial; aquí basta lectura visual.
+// ~300 kB y cobra uso comercial; aquí basta lectura visual. Desde la
+// migración 006 las barras son por TRAMO: una renta multi-vehículo pinta un
+// tramo por unidad.
 function CalendarView({
   bookings,
   units,
@@ -1226,11 +1257,11 @@ function CalendarView({
   const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 1);
   const monthMs = daysInMonth * 86_400_000;
 
-  // Clampa a los bordes del mes visible: una renta que empieza el mes
+  // Clampa a los bordes del mes visible: un tramo que empieza el mes
   // anterior NO puede producir anchos negativos.
-  function bar(b: AdminBooking): { leftPct: number; widthPct: number } | null {
-    const s = new Date(b.period_start);
-    const e = new Date(b.period_end);
+  function bar(startIso: string, endIso: string): { leftPct: number; widthPct: number } | null {
+    const s = new Date(startIso);
+    const e = new Date(endIso);
     if (s >= monthEnd || e <= monthStart) return null;
     const cs = Math.max(s.getTime(), monthStart.getTime());
     const ce = Math.min(e.getTime(), monthEnd.getTime());
@@ -1240,8 +1271,9 @@ function CalendarView({
     };
   }
 
+  // Colores por estado del TRAMO (reserved = la renta confirmada).
   const barColor: Record<string, string> = {
-    confirmed: 'bg-sky-200 text-sky-900',
+    reserved: 'bg-sky-200 text-sky-900',
     active: 'bg-emerald-200 text-emerald-900',
     completed: 'bg-gray-200 text-gray-700',
     cancelled: 'bg-red-200 text-red-900 line-through',
@@ -1275,27 +1307,30 @@ function CalendarView({
           <div key={unit.id} className="mt-1 flex items-center">
             <div className="w-[140px] shrink-0 truncate pr-2 font-mono text-xs">{unit.plate}</div>
             <div className="relative h-7 flex-1 rounded bg-muted/50">
-              {bookings
-                .filter((b) => b.plate === unit.plate)
-                .map((b) => {
-                  const dims = bar(b);
-                  if (!dims) return null;
-                  return (
-                    <div
-                      key={b.id}
-                      className={`absolute top-0.5 h-6 truncate rounded px-1 text-[10px] leading-6 ${
-                        b.kind === 'block'
-                          ? 'bg-[repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0_4px,#cbd5e1_4px,#cbd5e1_8px)] text-gray-700'
-                          : barColor[b.status] ?? 'bg-gray-200'
-                      }`}
-                      style={{ left: `${dims.leftPct}%`, width: `${dims.widthPct}%` }}
-                      title={`${b.code} · ${b.customer_name ?? 'BLOQUEO'} · ${b.status}`}
-                    >
-                      {b.kind === 'block' ? '🔧 ' : ''}
-                      {b.code}
-                    </div>
-                  );
-                })}
+              {bookings.flatMap((b) =>
+                (b.segments ?? [])
+                  .filter((s) => s.plate === unit.plate)
+                  .map((s) => {
+                    const dims = bar(s.period_start, s.period_end);
+                    if (!dims) return null;
+                    return (
+                      <div
+                        key={s.id}
+                        className={`absolute top-0.5 h-6 truncate rounded px-1 text-[10px] leading-6 ${
+                          b.kind === 'block'
+                            ? 'bg-[repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0_4px,#cbd5e1_4px,#cbd5e1_8px)] text-gray-700'
+                            : barColor[s.status] ?? 'bg-gray-200'
+                        }`}
+                        style={{ left: `${dims.leftPct}%`, width: `${dims.widthPct}%` }}
+                        title={`${b.code}${(b.segments?.length ?? 0) > 1 ? ` · tramo ${s.idx}` : ''} · ${b.customer_name ?? 'BLOQUEO'} · ${s.status}`}
+                      >
+                        {b.kind === 'block' ? '🔧 ' : ''}
+                        {(b.segments?.length ?? 0) > 1 ? `${s.idx}·` : ''}
+                        {b.code}
+                      </div>
+                    );
+                  }),
+              )}
             </div>
           </div>
         ))}

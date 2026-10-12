@@ -1,8 +1,14 @@
-// /api/admin/bookings/[id] — PATCH transiciones del pipeline (spec §4.3) y
-// REPRICE: ajuste de precio de una reserva existente. La máquina de estados
-// vive en el SERVIDOR (§2.9); el reprice recalcula desde el motor (modelo,
-// periodo y zona de la reserva) aplicando los overrides del staff — nunca
-// se pisa el total a ciegas — y persiste el desglose con motivo y autor.
+// /api/admin/bookings/[id] — PATCH transiciones del pipeline (spec §4.3),
+// REPRICE y EDIT. La máquina de estados vive en el SERVIDOR (§2.9) y desde
+// la migración 006 se PROPAGA a los tramos: confirmar un lead despierta sus
+// tramos ('quoted'→'reserved', que ya amarran unidad), iniciar renta activa
+// el primer tramo, completar cierra los corriendo, cancelar libera todo.
+//
+// reprice/edit operan sobre el PRIMER TRAMO NO TERMINAL (con rentas de un
+// tramo es exactamente el comportamiento histórico; el asistente multi-tramo
+// llega con el replan de la Fase 4). El reprice recalcula desde el motor
+// (modelo, periodo y zona DEL TRAMO) aplicando los overrides del staff —
+// nunca se pisa el total a ciegas — y persiste el desglose con motivo y autor.
 import type { APIContext } from 'astro';
 import { sql } from '../../../../lib/db';
 import { requireAdminApi } from '../../../../lib/auth';
@@ -17,6 +23,7 @@ import {
 } from '../../../../lib/pricing';
 import { pickFreeUnit, isUnitFree } from '../../../../lib/availability';
 import { broadcastBookingStatus } from '../../../../lib/alerts';
+import { recalcBookingTotals } from '../../../../lib/segments';
 
 export const prerender = false;
 
@@ -35,6 +42,35 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+// El tramo objetivo de reprice/edit: el primero que aún puede moverse.
+function firstLiveSegment<T extends { status: string }>(segments: T[]): T | undefined {
+  return segments.find((s) => !['completed', 'cancelled'].includes(s.status));
+}
+
+// Fila de tramo con su modelo (postgres.js devuelve filas sin firma de
+// índice utilizable para genéricos: se castaea a esta interfaz).
+interface SegmentWithModel {
+  id: number;
+  idx: number;
+  status: string;
+  vehicle_id: number | null;
+  period_start: Date;
+  period_end: Date;
+  pickup_zone: string;
+  return_zone: string | null;
+  pricing: Record<string, unknown> | null;
+  total_cents: number;
+  model_id: number;
+  model_slug: string;
+  model_name: string;
+  category: string;
+  transmission: string;
+  seats: number;
+  luggage: number;
+  daily_rate_cents: number;
+  photos: string[];
 }
 
 export async function PATCH(context: APIContext): Promise<Response> {
@@ -57,45 +93,53 @@ export async function PATCH(context: APIContext): Promise<Response> {
   }
   const { status: to, notes, reprice, edit } = parsed.data;
 
-  const rows = await sql`
-    SELECT b.*, lower(b.period) AS period_start, upper(b.period) AS period_end
-    FROM bookings b
-    WHERE b.id = ${id}
-  `;
+  const rows = await sql`SELECT b.* FROM bookings b WHERE b.id = ${id}`;
   if (rows.length === 0) return json({ error: 'not_found' }, 404);
   const booking = rows[0];
 
-  // ---- Reprice: recalcular el desglose de la reserva con overrides -------
+  const segmentRows = (await sql`
+    SELECT s.id, s.idx, s.status, s.vehicle_id,
+           lower(s.period) AS period_start, upper(s.period) AS period_end,
+           s.pickup_zone, s.return_zone, s.pricing, s.total_cents,
+           m.id AS model_id, m.slug AS model_slug, m.name AS model_name,
+           m.category, m.transmission, m.seats, m.luggage,
+           m.daily_rate_cents, m.photos
+    FROM booking_segments s
+    JOIN vehicle_models m ON m.id = s.model_id
+    WHERE s.booking_id = ${id}
+    ORDER BY s.idx
+  `) as unknown as SegmentWithModel[];
+  if (segmentRows.length === 0) {
+    return json({ error: 'no_segments' }, 500);
+  }
+
+  // ---- Reprice: recalcular el desglose del tramo con overrides -----------
   if (reprice) {
     if (booking.kind !== 'rental') {
       return json({ error: 'not_a_rental' }, 400);
     }
-    const modelRows = await sql`
-      SELECT m.* FROM vehicle_models m
-      JOIN vehicles v ON v.model_id = m.id
-      WHERE v.id = ${booking.vehicle_id}
-      LIMIT 1
-    `;
-    const m = modelRows[0];
-    if (!m) return json({ error: 'model_not_found' }, 500);
+    const seg = firstLiveSegment(segmentRows);
+    if (!seg) return json({ error: 'nothing_to_reprice' }, 409);
 
     const model = {
-      slug: m.slug as string,
-      name: m.name as string,
-      category: m.category as string,
-      transmission: m.transmission as string,
-      seats: Number(m.seats),
-      luggage: Number(m.luggage),
-      dailyRateCents: Number(m.daily_rate_cents),
-      photos: [],
+      slug: seg.model_slug as string,
+      name: seg.model_name as string,
+      category: seg.category as string,
+      transmission: seg.transmission as string,
+      seats: Number(seg.seats),
+      luggage: Number(seg.luggage),
+      dailyRateCents: Number(seg.daily_rate_cents),
+      photos: (seg.photos as string[]) ?? [],
       unitsAvailable: 0,
     };
-    const start = new Date(booking.period_start);
-    const end = new Date(booking.period_end);
+    const start = new Date(seg.period_start);
+    const end = new Date(seg.period_end);
+    const pickupZone = seg.pickup_zone as string;
+    const returnZone = (seg.return_zone as string | null) ?? pickupZone;
     const ctx = await loadPricingContext(sql);
-    const base = computeQuote(model, start, end, booking.pickup_zone, [], ctx, booking.return_zone ?? booking.pickup_zone);
+    const base = computeQuote(model, start, end, pickupZone, [], ctx, returnZone);
     const quote = applyPricingOverrides(base, model, start, end, reprice, ctx);
-    const previous = (booking.pricing ?? {}) as Record<string, unknown>;
+    const previous = (seg.pricing ?? {}) as Record<string, unknown>;
 
     const pricing = buildPricingRecord(quote, {
       dailyRateCents: reprice.dailyRateCents ?? model.dailyRateCents,
@@ -109,7 +153,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
           qty: sel.qty,
         };
       }),
-      pickupZone: booking.pickup_zone as string,
+      pickupZone,
       discount: reprice.discount
         ? { ...reprice.discount, cents: base.subtotalCents - quote.subtotalCents, reason: reprice.reason ?? '' }
         : quote.discountPct > 0
@@ -121,16 +165,19 @@ export async function PATCH(context: APIContext): Promise<Response> {
     });
 
     const updated = await sql`
-      UPDATE bookings
-      SET pricing = ${sql.json(pricingJson({ ...pricing, previousSource: previous.source ?? null, previousTotalCents: booking.total_cents }))}::jsonb,
-          total_cents = ${pricing.totalCents}
-      WHERE id = ${id}
+      UPDATE booking_segments
+      SET pricing = ${sql.json(pricingJson({ ...pricing, previousSource: previous.source ?? null, previousTotalCents: seg.total_cents }))}::jsonb,
+          total_cents = ${pricing.totalCents},
+          updated_at = now()
+      WHERE id = ${seg.id}
       RETURNING *
     `;
-    return json({ booking: updated[0] });
+    await recalcBookingTotals(sql, id);
+    const bookingAfter = await sql`SELECT * FROM bookings WHERE id = ${id}`;
+    return json({ booking: bookingAfter[0], segment: updated[0] });
   }
 
-  // ---- Edit: modelo/fechas/zona/extras ------------------------------------
+  // ---- Edit: modelo/fechas/zona/extras DEL TRAMO ---------------------------
   // Re-asigna unidad dentro de una transacción (FOR UPDATE) y recalcula el
   // desglose desde el motor. `requested` NO se toca: el pedido original del
   // cliente queda congelado para el diff del panel.
@@ -138,48 +185,60 @@ export async function PATCH(context: APIContext): Promise<Response> {
     if (booking.kind !== 'rental') {
       return json({ error: 'not_a_rental' }, 400);
     }
-    const currentModelRows = await sql`
-      SELECT m.slug FROM vehicle_models m
-      JOIN vehicles v ON v.model_id = m.id
-      WHERE v.id = ${booking.vehicle_id} LIMIT 1
-    `;
-    const currentSlug = currentModelRows[0]?.slug as string | undefined;
+    const seg = firstLiveSegment(segmentRows);
+    if (!seg) return json({ error: 'nothing_to_edit' }, 409);
+
+    const currentSlug = seg.model_slug as string;
     const targetSlug = edit.modelSlug ?? currentSlug;
-    const newStart = edit.start ?? new Date(booking.period_start);
-    const newEnd = edit.end ?? new Date(booking.period_end);
-    const newZone = edit.pickupZone ?? (booking.pickup_zone as string);
-  const newReturnZone = edit.returnZone ?? ((booking.return_zone as string | null) ?? newZone);
+    const newStart = edit.start ?? new Date(seg.period_start);
+    const newEnd = edit.end ?? new Date(seg.period_end);
+    const newZone = edit.pickupZone ?? (seg.pickup_zone as string);
+    const newReturnZone = edit.returnZone ?? ((seg.return_zone as string | null) ?? newZone);
+
+    // Los tramos hermanos no se tocan: el nuevo rango NO puede solaparlos
+    // (la constraint de BD sólo atrapa misma unidad).
+    for (const other of segmentRows) {
+      if (Number(other.id) === Number(seg.id)) continue;
+      if (['completed', 'cancelled'].includes(other.status as string)) continue;
+      const os = new Date(other.period_start);
+      const oe = new Date(other.period_end);
+      if (newStart < oe && os < newEnd) {
+        return json({ error: 'segment_overlap', hint: 'El nuevo rango se solapa con otro tramo de la misma renta.' }, 409);
+      }
+    }
 
     const ctx = await loadPricingContext(sql);
     const buffer = ctx.settings.turnaroundBufferMinutes;
 
     const result = await sql.begin(async (sqlTx) => {
       let unitId: number;
-      if (targetSlug === currentSlug) {
+      const segVehicleId = seg.vehicle_id === null ? null : Number(seg.vehicle_id);
+      if (targetSlug === currentSlug && segVehicleId !== null) {
         // Mismo modelo: conserva la unidad si sigue libre para el rango
         // nuevo; si no, busca otra del mismo modelo.
-        const stillFree = await isUnitFree(sqlTx, Number(booking.vehicle_id), newStart, newEnd, buffer, id);
+        const stillFree = await isUnitFree(sqlTx, segVehicleId, newStart, newEnd, buffer, id);
         if (stillFree) {
-          unitId = Number(booking.vehicle_id);
+          unitId = segVehicleId;
         } else {
-          const alt = await pickFreeUnit(sqlTx, targetSlug ?? '', newStart, newEnd, buffer, id);
+          const alt = await pickFreeUnit(sqlTx, targetSlug, newStart, newEnd, buffer, id);
           if (alt === null) return { unavailable: true as const };
           unitId = alt;
         }
       } else {
-        const alt = await pickFreeUnit(sqlTx, targetSlug ?? '', newStart, newEnd, buffer, id);
+        const alt = await pickFreeUnit(sqlTx, targetSlug, newStart, newEnd, buffer, id);
         if (alt === null) return { unavailable: true as const };
         unitId = alt;
       }
 
       const modelRows = await sqlTx`
-        SELECT slug, name, category, transmission, seats, luggage,
+        SELECT id, slug, name, category, transmission, seats, luggage,
                daily_rate_cents, photos
-        FROM vehicle_models WHERE slug = ${targetSlug ?? ''} LIMIT 1
+        FROM vehicle_models WHERE slug = ${targetSlug} LIMIT 1
       `;
       const m = modelRows[0];
       if (!m) return { unavailable: true as const };
       const model = {
+        id: Number(m.id),
         slug: m.slug as string,
         name: m.name as string,
         category: m.category as string,
@@ -196,8 +255,8 @@ export async function PATCH(context: APIContext): Promise<Response> {
       const snapshot = snapshotExtras(chosenExtras, ctx);
       const changes: string[] = [];
       if (targetSlug !== currentSlug) changes.push('modelo');
-      if (newStart.getTime() !== new Date(booking.period_start).getTime() || newEnd.getTime() !== new Date(booking.period_end).getTime()) changes.push('fechas');
-      if (newZone !== booking.pickup_zone) changes.push('zona');
+      if (newStart.getTime() !== new Date(seg.period_start).getTime() || newEnd.getTime() !== new Date(seg.period_end).getTime()) changes.push('fechas');
+      if (newZone !== seg.pickup_zone) changes.push('zona');
       if (edit.extras !== undefined) changes.push('extras');
 
       const pricing = buildPricingRecord(quote, {
@@ -210,29 +269,35 @@ export async function PATCH(context: APIContext): Promise<Response> {
         editedBy: admin.email,
       });
 
-      const rows = await sqlTx`
-        UPDATE bookings
-        SET vehicle_id = ${unitId},
+      const updatedSeg = await sqlTx`
+        UPDATE booking_segments
+        SET model_id = ${model.id},
+            vehicle_id = ${unitId},
             period = tstzrange(${newStart}::timestamptz, ${newEnd}::timestamptz, '[)'),
             pickup_zone = ${newZone},
             return_zone = ${newReturnZone},
             extras = ${sql.json(snapshot)}::jsonb,
             pricing = ${sql.json(pricingJson(pricing))}::jsonb,
             total_cents = ${pricing.totalCents},
-            notes = COALESCE(${notes ?? null}, notes)
-        WHERE id = ${id}
+            updated_at = now()
+        WHERE id = ${seg.id}
         RETURNING *
       `;
-      return { booking: rows[0], modelName: model.name };
+      await sqlTx`
+        UPDATE bookings SET notes = COALESCE(${notes ?? null}, notes) WHERE id = ${id}
+      `;
+      return { segment: updatedSeg[0], modelName: model.name };
     });
 
     if ('unavailable' in result) {
       return json({ error: 'unavailable' }, 409);
     }
-    return json(result);
+    await recalcBookingTotals(sql, id);
+    const bookingAfter = await sql`SELECT * FROM bookings WHERE id = ${id}`;
+    return json({ booking: bookingAfter[0], segment: result.segment, modelName: result.modelName });
   }
 
-  // ---- Transición de estado ----------------------------------------------
+  // ---- Transición de estado (con propagación a tramos) ---------------------
   if (to !== undefined) {
     const from = booking.status as string;
     if (!ALLOWED_TRANSITIONS[from]?.includes(to)) {
@@ -242,9 +307,45 @@ export async function PATCH(context: APIContext): Promise<Response> {
 
   // Cancelar NO requiere "liberar" nada a mano: la constraint y las queries
   // de disponibilidad filtran por status; el inventario es una proyección.
-  let updated;
   try {
-    updated = await sql`
+    if (to === 'confirmed') {
+      // El lead despierta: sus tramos 'quoted' pasan a 'reserved' y por fin
+      // amarran unidad. Si las fechas siguen chocando con otra reserva, la
+      // constraint lo impide — la constraint manda.
+      await sql`
+        UPDATE booking_segments SET status = 'reserved', updated_at = now()
+        WHERE booking_id = ${id} AND status = 'quoted'
+      `;
+    } else if (to === 'active') {
+      // Se entrega la primera unidad de la línea de tiempo; los tramos
+      // futuros quedan 'reserved' hasta su hora.
+      await sql`
+        UPDATE booking_segments SET status = 'active', updated_at = now()
+        WHERE id = (
+          SELECT id FROM booking_segments
+          WHERE booking_id = ${id} AND status IN ('quoted','reserved')
+          ORDER BY idx LIMIT 1
+        )
+      `;
+    } else if (to === 'completed') {
+      // Cerrar la renta: los tramos en calle se completan; los futuros que
+      // ya no van a correr se cancelan (no deben seguir amarrando unidades).
+      await sql`
+        UPDATE booking_segments SET status = 'completed', updated_at = now()
+        WHERE booking_id = ${id} AND status = 'active'
+      `;
+      await sql`
+        UPDATE booking_segments SET status = 'cancelled', updated_at = now()
+        WHERE booking_id = ${id} AND status IN ('quoted','reserved')
+      `;
+    } else if (to === 'cancelled') {
+      await sql`
+        UPDATE booking_segments SET status = 'cancelled', updated_at = now()
+        WHERE booking_id = ${id} AND status IN ('quoted','reserved','active')
+      `;
+    }
+
+    const updated = await sql`
       UPDATE bookings
       SET
         status = COALESCE(${to ?? null}, status),
@@ -252,6 +353,8 @@ export async function PATCH(context: APIContext): Promise<Response> {
       WHERE id = ${id}
       RETURNING *
     `;
+    await recalcBookingTotals(sql, id);
+    return json({ booking: updated[0] });
   } catch (err) {
     // Confirmar un lead cuyas fechas siguen chocando con la reserva que
     // ocupa la unidad: la constraint lo impide — la constraint manda.
@@ -262,19 +365,17 @@ export async function PATCH(context: APIContext): Promise<Response> {
       );
     }
     throw err;
+  } finally {
+    // La transición se anuncia a las pestañas del staff (badge del nav).
+    if (to !== undefined && to !== booking.status) {
+      broadcastBookingStatus({
+        id,
+        code: booking.code as string,
+        from: booking.status as string,
+        to,
+      });
+    }
   }
-
-  // La transición se anuncia a las pestañas del staff (badge del nav).
-  if (to !== undefined && to !== booking.status) {
-    broadcastBookingStatus({
-      id,
-      code: booking.code as string,
-      from: booking.status as string,
-      to,
-    });
-  }
-
-  return json({ booking: updated[0] });
 }
 
 export function ALL(): Response {

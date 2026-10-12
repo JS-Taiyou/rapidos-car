@@ -13,43 +13,49 @@ export const prerender = false;
 const admin = await requireAdmin(Astro);
 if (admin instanceof Response) return admin;
 
-// Entregas de hoy (los bloqueos kind='block' no son entregas: se excluyen).
+// Entregas de hoy por TRAMO (los bloqueos kind='block' no son entregas): un
+// tramo que empieza hoy = una unidad que se entrega hoy, aunque la renta ya
+// lleve días corriendo con otro auto (migración 006).
 const pickups = await sql`
   SELECT b.code, b.customer_name, b.customer_phone, b.flight_number,
-         b.pickup_zone, lower(b.period) AS start_at,
+         s.pickup_zone, lower(s.period) AS start_at,
          v.plate, vm.name AS model_name
-  FROM bookings b
-  JOIN vehicles v ON v.id = b.vehicle_id
-  JOIN vehicle_models vm ON vm.id = v.model_id
-  WHERE b.kind = 'rental'
-    AND b.status IN ('confirmed','active')
-    AND (lower(b.period) AT TIME ZONE 'America/Merida')::date
+  FROM booking_segments s
+  JOIN bookings b ON b.id = s.booking_id AND b.kind = 'rental'
+                  AND b.status IN ('confirmed','active')
+  JOIN vehicle_models vm ON vm.id = s.model_id
+  LEFT JOIN vehicles v ON v.id = s.vehicle_id
+  WHERE s.status IN ('reserved','active')
+    AND (lower(s.period) AT TIME ZONE 'America/Merida')::date
         = (now() AT TIME ZONE 'America/Merida')::date
-  ORDER BY lower(b.period)
+  ORDER BY lower(s.period)
 `;
 
-// Devoluciones de hoy: upper(period) es el momento exacto de devolución
-// (el rango es [inicio, fin)).
+// Devoluciones de hoy: upper(period) del tramo es el momento exacto de
+// devolución (el rango es [inicio, fin)).
 const returns = await sql`
   SELECT b.code, b.customer_name, b.customer_phone,
-         upper(b.period) AS end_at,
+         upper(s.period) AS end_at,
          v.plate, vm.name AS model_name
-  FROM bookings b
-  JOIN vehicles v ON v.id = b.vehicle_id
-  JOIN vehicle_models vm ON vm.id = v.model_id
-  WHERE b.kind = 'rental'
-    AND b.status IN ('confirmed','active')
-    AND (upper(b.period) AT TIME ZONE 'America/Merida')::date
+  FROM booking_segments s
+  JOIN bookings b ON b.id = s.booking_id AND b.kind = 'rental'
+                  AND b.status IN ('confirmed','active')
+  JOIN vehicle_models vm ON vm.id = s.model_id
+  LEFT JOIN vehicles v ON v.id = s.vehicle_id
+  WHERE s.status IN ('reserved','active')
+    AND (upper(s.period) AT TIME ZONE 'America/Merida')::date
         = (now() AT TIME ZONE 'America/Merida')::date
-  ORDER BY upper(b.period)
+  ORDER BY upper(s.period)
 `;
 
-// Ocupación ahora: numerador = rentas vigentes; denominador = unidades
-// activas (taller/retiradas no son flota disponible).
+// Ocupación ahora: numerador = unidades amarradas por tramos vigentes;
+// denominador = unidades activas (taller/retiradas no son flota disponible).
 const occupancyRows = await sql`
   SELECT
-    (SELECT COUNT(DISTINCT vehicle_id) FROM bookings
-      WHERE kind = 'rental' AND status IN ('confirmed','active') AND period @> now()) AS busy,
+    (SELECT COUNT(DISTINCT s.vehicle_id) FROM booking_segments s
+      JOIN bookings b ON b.id = s.booking_id
+      WHERE b.kind = 'rental' AND b.status IN ('confirmed','active')
+        AND s.status IN ('reserved','active') AND s.period @> now()) AS busy,
     (SELECT COUNT(*) FROM vehicles WHERE status = 'active') AS fleet
 `;
 const busy = Number(occupancyRows[0]?.busy ?? 0);

@@ -34,7 +34,7 @@ async function main() {
     const r = await sql`SELECT m.id, m.slug, m.name, m.daily_rate_cents, v.id AS unit_id
                         FROM vehicle_models m JOIN vehicles v ON v.model_id = m.id
                         WHERE m.slug = ${slug} ORDER BY v.id LIMIT 1`;
-    return r[0] as { unit_id: number };
+    return r[0] as { id: number; unit_id: number };
   };
 
   const code = () => {
@@ -43,24 +43,37 @@ async function main() {
     return 'RPZ-' + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
   };
 
-  const insert = async (m: { unit_id: number | string }, opts: {
+  const insert = async (m: { id: number; unit_id: number }, opts: {
     status: string; start: Date; end: Date; name: string; email: string; phone: string;
     total: number; zone: string; kind?: string; notes?: string | null; flight?: string | null;
     requested?: Record<string, unknown>; pricing?: Record<string, unknown>;
   }) => {
+    // Cabecera + tramo 1 (migración 006): la unidad/período viven en el
+    // segmento. Los 'quoted' (leads) bajan a tramo 'quoted' para no apartar.
+    const segStatus = opts.status === 'quoted' ? 'quoted' : opts.status === 'confirmed' ? 'reserved' : opts.status;
     await sql`
-      INSERT INTO bookings
-        (code, kind, vehicle_id, customer_name, customer_email, customer_phone,
-         flight_number, period, pickup_zone, extras, total_cents, deposit_type,
-         status, notes, requested, pricing)
-      VALUES
-        (${code()}, ${opts.kind ?? 'rental'}, ${Number(m.unit_id)}, ${opts.name}, ${opts.email},
-         ${opts.phone}, ${opts.flight ?? null},
-         tstzrange(${opts.start}::timestamptz, ${opts.end}::timestamptz, '[)'),
-         ${opts.zone}, '[]'::jsonb, ${opts.total}, ${Math.random() > 0.5 ? 'deposit' : 'on_pickup'},
-         ${opts.status}, ${opts.notes ?? null},
-         ${sql.json(JSON.parse(JSON.stringify(opts.requested ?? {})))}::jsonb,
-         ${sql.json(JSON.parse(JSON.stringify(opts.pricing ?? {})))}::jsonb)
+      WITH new_booking AS (
+        INSERT INTO bookings
+          (code, kind, customer_name, customer_email, customer_phone, flight_number,
+           total_cents, deposit_type, status, notes, requested, pricing)
+        VALUES
+          (${code()}, ${opts.kind ?? 'rental'}, ${opts.name}, ${opts.email}, ${opts.phone},
+           ${opts.flight ?? null}, ${opts.total},
+           ${Math.random() > 0.5 ? 'deposit' : 'on_pickup'},
+           ${opts.status}, ${opts.notes ?? null},
+           ${sql.json(JSON.parse(JSON.stringify(opts.requested ?? {})))}::jsonb,
+           ${sql.json(JSON.parse(JSON.stringify(opts.pricing ?? {})))}::jsonb)
+        RETURNING id
+      )
+      INSERT INTO booking_segments
+        (booking_id, idx, model_id, vehicle_id, period, status, pricing,
+         total_cents, extras, pickup_zone)
+      SELECT nb.id, 1, ${m.id}, ${m.unit_id},
+             tstzrange(${opts.start}::timestamptz, ${opts.end}::timestamptz, '[)'),
+             ${segStatus},
+             ${sql.json(JSON.parse(JSON.stringify(opts.pricing ?? {})))}::jsonb,
+             ${opts.total}, '[]'::jsonb, ${opts.zone}
+      FROM new_booking nb
     `;
   };
 

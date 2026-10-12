@@ -1,7 +1,10 @@
 // /api/admin/bookings — GET lista con filtros · POST captura manual/bloqueo
-// (spec §4.3). kind='block' es una fila más de bookings (§2.10): la
-// constraint no_overlap lo cubre gratis, pero SOLO si nace 'confirmed' (el
-// WHERE parcial de la constraint ignora otros estados).
+// (spec §4.3). Desde la migración 006 la renta es cabecera (bookings) +
+// tramos (booking_segments): el GET agrega la línea de tiempo con LATERAL y
+// el POST crea ambas filas. kind='block' sigue siendo una renta de 1 tramo
+// (§2.10): la constraint no_overlap_segment lo cubre gratis, pero SOLO si el
+// tramo nace 'reserved' (el WHERE parcial de la constraint ignora otros
+// estados).
 import type { APIContext } from 'astro';
 import { sql, type Sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
@@ -41,29 +44,59 @@ export async function GET(context: APIContext): Promise<Response> {
   // de SQL (inyección); los fragments escapan los valores.
   const conds = [
     sql`TRUE`,
-    ...(from && to ? [sql`b.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')`] : []),
+    ...(from && to
+      ? [
+          sql`EXISTS (
+            SELECT 1 FROM booking_segments s
+            WHERE s.booking_id = b.id
+              AND s.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+          )`,
+        ]
+      : []),
     ...(status ? [sql`b.status = ${status}`] : []),
     ...(kind ? [sql`b.kind = ${kind}`] : []),
   ];
   const where = conds.reduce((acc, c) => sql`${acc} AND ${c}`);
 
+  // Agregado de la línea de tiempo: período total (min lower → max upper),
+  // unidad/modelo/extras del PRIMER tramo (compat del board) y el arreglo
+  // de tramos completo por idx (chips multi-vehículo del panel).
   const rows = await sql`
-    SELECT b.*, v.plate, m.name AS model_name, m.slug AS model_slug,
-           lower(b.period) AS period_start, upper(b.period) AS period_end
+    SELECT b.*, agg.period_start, agg.period_end, agg.plate,
+           agg.model_name, agg.model_slug, agg.extras, agg.segments
     FROM bookings b
-    JOIN vehicles v ON v.id = b.vehicle_id
-    JOIN vehicle_models m ON m.id = v.model_id
+    LEFT JOIN LATERAL (
+      SELECT min(lower(s.period)) AS period_start,
+             max(upper(s.period)) AS period_end,
+             (array_agg(v.plate ORDER BY s.idx))[1] AS plate,
+             (array_agg(m.name ORDER BY s.idx))[1] AS model_name,
+             (array_agg(m.slug ORDER BY s.idx))[1] AS model_slug,
+             (array_agg(s.extras ORDER BY s.idx))[1] AS extras,
+             json_agg(json_build_object(
+               'id', s.id, 'idx', s.idx, 'status', s.status,
+               'model_slug', m.slug, 'model_name', m.name, 'plate', v.plate,
+               'period_start', lower(s.period), 'period_end', upper(s.period),
+               'total_cents', s.total_cents
+             ) ORDER BY s.idx) AS segments
+      FROM booking_segments s
+      JOIN vehicle_models m ON m.id = s.model_id
+      LEFT JOIN vehicles v ON v.id = s.vehicle_id
+      WHERE s.booking_id = b.id
+    ) agg ON true
     WHERE ${where}
-    ORDER BY lower(b.period) DESC
+    ORDER BY agg.period_start DESC
     LIMIT 200
   `;
 
   return json({ bookings: rows });
 }
 
-async function fetchModel(sqlTx: Sql, modelSlug: string): Promise<ModelAvailability | null> {
+async function fetchModel(
+  sqlTx: Sql,
+  modelSlug: string,
+): Promise<(ModelAvailability & { id: number }) | null> {
   const rows = await sqlTx`
-    SELECT slug, name, category, transmission, seats, luggage,
+    SELECT id, slug, name, category, transmission, seats, luggage,
            daily_rate_cents, photos
     FROM vehicle_models
     WHERE slug = ${modelSlug} AND active = true
@@ -72,6 +105,7 @@ async function fetchModel(sqlTx: Sql, modelSlug: string): Promise<ModelAvailabil
   const r = rows[0];
   if (!r) return null;
   return {
+    id: Number(r.id),
     slug: r.slug as string,
     name: r.name as string,
     category: r.category as string,
@@ -100,27 +134,59 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!parsed.success) {
     return json({ error: 'validation', issues: parsed.error.issues }, 400);
   }
+
   const data = parsed.data;
 
   try {
     if (data.kind === 'block') {
       // Bloqueo: INSERT directo (sin pricing): customer NULL, total 0,
-      // deposit 'on_pickup' como placeholder (el CHECK lo exige) y status
-      // 'confirmed' — en otro estado NO bloquearía la unidad. El refine del
+      // deposit 'on_pickup' como placeholder (el CHECK lo exige) y tramo
+      // 'reserved' — en otro estado NO bloquearía la unidad. El refine del
       // schema garantiza vehicleId presente en los blocks.
       const blockVehicleId = data.vehicleId!;
       const rows = await sql`
-        INSERT INTO bookings
-          (code, kind, vehicle_id, period, pickup_zone, extras, total_cents,
-           deposit_type, status, notes)
-        VALUES
-          (${generateBookingCode()}, 'block', ${blockVehicleId},
-           tstzrange(${data.start}::timestamptz, ${data.end}::timestamptz, '[)'),
-           ${data.pickupZone}, '[]'::jsonb, 0, 'on_pickup', 'confirmed',
-           ${data.notes ?? null})
-        RETURNING *
+        WITH new_block AS (
+          INSERT INTO bookings
+            (code, kind, total_cents, deposit_type, status, notes)
+          VALUES
+            (${generateBookingCode()}, 'block', 0, 'on_pickup', 'confirmed',
+             ${data.notes ?? null})
+          RETURNING id
+        )
+        INSERT INTO booking_segments
+          (booking_id, idx, model_id, vehicle_id, period, status,
+           pickup_zone, return_zone)
+        SELECT nb.id, 1, v.model_id, v.id,
+               tstzrange(${data.start}::timestamptz, ${data.end}::timestamptz, '[)'),
+               'reserved', ${data.pickupZone}, ${data.returnZone ?? data.pickupZone}
+        FROM new_block nb
+        JOIN vehicles v ON v.id = ${blockVehicleId}
+        RETURNING booking_id
       `;
-      return json({ booking: rows[0] }, 201);
+      const created = await sql`
+        SELECT b.*, agg.period_start, agg.period_end, agg.plate,
+               agg.model_name, agg.model_slug, agg.segments
+        FROM bookings b
+        LEFT JOIN LATERAL (
+          SELECT min(lower(s.period)) AS period_start,
+                 max(upper(s.period)) AS period_end,
+                 (array_agg(v.plate ORDER BY s.idx))[1] AS plate,
+                 (array_agg(m.name ORDER BY s.idx))[1] AS model_name,
+                 (array_agg(m.slug ORDER BY s.idx))[1] AS model_slug,
+                 json_agg(json_build_object(
+                   'id', s.id, 'idx', s.idx, 'status', s.status,
+                   'model_slug', m.slug, 'model_name', m.name, 'plate', v.plate,
+                   'period_start', lower(s.period), 'period_end', upper(s.period),
+                   'total_cents', s.total_cents
+                 ) ORDER BY s.idx) AS segments
+          FROM booking_segments s
+          JOIN vehicle_models m ON m.id = s.model_id
+          LEFT JOIN vehicles v ON v.id = s.vehicle_id
+          WHERE s.booking_id = b.id
+        ) agg ON true
+        WHERE b.id = ${Number(rows[0].booking_id)}
+      `;
+      return json({ booking: created[0] }, 201);
     }
 
     // Captura manual (renta): MISMO flujo transaccional que el endpoint
@@ -191,22 +257,32 @@ export async function POST(context: APIContext): Promise<Response> {
         try {
           const rows = await sqlTx`
             INSERT INTO bookings
-              (code, kind, vehicle_id, customer_name, customer_email,
-               customer_phone, flight_number, period, pickup_zone, return_zone,
-               extras, total_cents, deposit_type, status, notes, pricing, requested)
+              (code, kind, customer_name, customer_email, customer_phone,
+               flight_number, total_cents, deposit_type, status, notes,
+               pricing, requested)
             VALUES
-              (${code}, 'rental', ${unitId}, ${data.customer!.name},
+              (${code}, 'rental', ${data.customer!.name},
                ${data.customer!.email ?? null}, ${data.customer!.phone ?? null},
                ${data.customer!.flightNumber ?? null},
-               tstzrange(${data.start}::timestamptz, ${data.end}::timestamptz, '[)'),
-               ${data.pickupZone}, ${data.returnZone ?? data.pickupZone},
-               ${sql.json(snapshotExtras(data.extras, ctx))}::jsonb,
                ${pricing.totalCents}, ${data.depositType}, 'confirmed',
                ${data.notes ?? null}, ${sql.json(pricingJson(pricing))}::jsonb,
                ${sql.json(requested)}::jsonb)
-            RETURNING *
+            RETURNING id
           `;
-          return { booking: rows[0] };
+          const bookingId = Number(rows[0].id);
+          await sqlTx`
+            INSERT INTO booking_segments
+              (booking_id, idx, model_id, vehicle_id, period, status,
+               pricing, total_cents, extras, pickup_zone, return_zone)
+            VALUES
+              (${bookingId}, 1, ${model.id}, ${unitId},
+               tstzrange(${data.start}::timestamptz, ${data.end}::timestamptz, '[)'),
+               'reserved', ${sql.json(pricingJson(pricing))}::jsonb,
+               ${pricing.totalCents},
+               ${sql.json(snapshotExtras(data.extras, ctx))}::jsonb,
+               ${data.pickupZone}, ${data.returnZone ?? data.pickupZone})
+          `;
+          return { bookingId };
         } catch (err) {
           if ((err as { code?: string }).code === '23505') continue;
           throw err;
@@ -218,9 +294,36 @@ export async function POST(context: APIContext): Promise<Response> {
     if ('unavailable' in result) {
       return json({ error: 'unavailable' }, 409);
     }
+
+    // Respuesta con el agregado de tramos (misma forma que el GET).
+    const created = await sql`
+      SELECT b.*, agg.period_start, agg.period_end, agg.plate,
+             agg.model_name, agg.model_slug, agg.extras, agg.segments
+      FROM bookings b
+      LEFT JOIN LATERAL (
+        SELECT min(lower(s.period)) AS period_start,
+               max(upper(s.period)) AS period_end,
+               (array_agg(v.plate ORDER BY s.idx))[1] AS plate,
+               (array_agg(m.name ORDER BY s.idx))[1] AS model_name,
+               (array_agg(m.slug ORDER BY s.idx))[1] AS model_slug,
+               (array_agg(s.extras ORDER BY s.idx))[1] AS extras,
+               json_agg(json_build_object(
+                 'id', s.id, 'idx', s.idx, 'status', s.status,
+                 'model_slug', m.slug, 'model_name', m.name, 'plate', v.plate,
+                 'period_start', lower(s.period), 'period_end', upper(s.period),
+                 'total_cents', s.total_cents
+               ) ORDER BY s.idx) AS segments
+        FROM booking_segments s
+        JOIN vehicle_models m ON m.id = s.model_id
+        LEFT JOIN vehicles v ON v.id = s.vehicle_id
+        WHERE s.booking_id = b.id
+      ) agg ON true
+      WHERE b.id = ${result.bookingId}
+    `;
+
     // CRM: find-or-link del cliente capturado (best-effort).
     try {
-      await linkBookingToCustomer(sql, Number(result.booking.id), {
+      await linkBookingToCustomer(sql, result.bookingId, {
         name: data.customer?.name ?? '',
         email: data.customer?.email ?? null,
         phone: data.customer?.phone ?? null,
@@ -230,7 +333,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     // SIN whatsappUrl: la captura manual no dispara mensaje automático (el
     // staff ya tiene al cliente enfrente o al teléfono).
-    return json(result, 201);
+    return json({ booking: created[0] }, 201);
   } catch (err) {
     if ((err as { code?: string }).code === '23P01') {
       return json({ error: 'unavailable' }, 409);

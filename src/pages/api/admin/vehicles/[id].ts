@@ -129,14 +129,17 @@ export async function DELETE(context: APIContext): Promise<Response> {
   if (Number.isNaN(id)) return json({ error: 'invalid_id' }, 400);
 
   // Verificación ANTES de tocar nada: rentas futuras confirmadas → 409 con
-  // la lista (mejor un 409 explícito que clientes sin auto).
+  // la lista (mejor un 409 explícito que clientes sin auto). Por tramos
+  // (migración 006): la unidad vive en booking_segments.
   const future = await sql`
-    SELECT b.id, b.code, b.period, v.plate
-    FROM bookings b
-    JOIN vehicles v ON v.id = b.vehicle_id
+    SELECT DISTINCT b.id, b.code, s.period, v.plate
+    FROM booking_segments s
+    JOIN bookings b ON b.id = s.booking_id
+    JOIN vehicles v ON v.id = s.vehicle_id
     WHERE v.model_id = ${id}
       AND b.status IN ('confirmed','active')
-      AND upper(b.period) > now()
+      AND s.status IN ('reserved','active')
+      AND upper(s.period) > now()
   `;
   if (future.length > 0) {
     return json({ error: 'has_future_bookings', bookings: future }, 409);

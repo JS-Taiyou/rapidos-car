@@ -1,6 +1,6 @@
 // FleetManager — CRUD del inventario en sus dos niveles (§3): MODELOS (lo
 // que se cotiza) y UNIDADES (las placas físicas). DELETE siempre LÓGICO
-// (active=false / status='retired'): bookings referencia vehicle_id y el
+// (active=false / status='retired'): booking_segments referencia vehicle_id
 // historial no se rompe. Solo español.
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { Button } from '../../ui/button';

@@ -28,7 +28,13 @@ if (to <= from) from.setTime(to.getTime() - 30 * 86_400_000);
 const rangeDays = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
 const fmtInput = (d: Date) => d.toISOString().slice(0, 10);
 
-const RENTED = `('confirmed','active','completed')`;
+// Tramo dentro del rango (la renta participa si ALGÚN tramo toca el rango).
+const touchesRange = () => sql`
+  EXISTS (
+    SELECT 1 FROM booking_segments s
+    WHERE s.booking_id = b.id AND s.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+  )
+`;
 
 // ---- Resumen + conversión de leads web ------------------------------------
 const summaryRows = await sql`
@@ -38,9 +44,8 @@ const summaryRows = await sql`
     COUNT(*) FILTER (WHERE requested->>'channel' = 'web')::int AS web_leads,
     COUNT(*) FILTER (WHERE requested->>'channel' = 'web' AND status IN ('confirmed','active','completed'))::int AS web_converted,
     COUNT(*) FILTER (WHERE requested->>'channel' = 'web' AND status = 'quoted')::int AS pending_leads
-  FROM bookings
-  WHERE kind = 'rental'
-    AND period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+  FROM bookings b
+  WHERE kind = 'rental' AND ${touchesRange()}
 `;
 const summary = summaryRows[0];
 const revenueCents = Number(summary.revenue_cents);
@@ -50,25 +55,29 @@ const conversionPct = webLeads > 0 ? Math.round((webConverted / webLeads) * 100)
 
 // ---- Por modelo: ingresos + demanda latente (pedidos web, incluso sin
 // disponibilidad — los leads quoted cuentan como demanda) ------------------
+// Ingresos POR TRAMO (migración 006): una renta que cambia de auto reparte
+// su ingreso entre los modelos que usó, atribuido a la fecha de inicio del
+// tramo. 'rentals' cuenta rentas DISTINCT (no tramos).
 const revenueRows = await sql`
   SELECT m.slug, m.name,
-         COUNT(b.id)::int AS rentals,
-         COALESCE(SUM(b.total_cents), 0) AS revenue_cents
-  FROM bookings b
-  JOIN vehicles v ON v.id = b.vehicle_id
-  JOIN vehicle_models m ON m.id = v.model_id
-  WHERE b.kind = 'rental' AND b.status IN ('confirmed','active','completed')
-    AND b.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+         COUNT(DISTINCT b.id)::int AS rentals,
+         COALESCE(SUM(s.total_cents), 0) AS revenue_cents
+  FROM booking_segments s
+  JOIN bookings b ON b.id = s.booking_id AND b.kind = 'rental'
+                  AND b.status IN ('confirmed','active','completed')
+  JOIN vehicle_models m ON m.id = s.model_id
+  WHERE s.status IN ('reserved','active','completed')
+    AND s.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
   GROUP BY m.id
 `;
 const demandRows = await sql`
   SELECT requested->'model'->>'slug' AS slug,
          requested->'model'->>'name' AS name,
          COUNT(*)::int AS pedidos
-  FROM bookings
+  FROM bookings b
   WHERE kind = 'rental'
     AND requested->>'channel' = 'web'
-    AND period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+    AND ${touchesRange()}
   GROUP BY 1, 2
 `;
 const demandBySlug = new Map(demandRows.map((r) => [r.slug as string, Number(r.pedidos)]));
@@ -93,16 +102,15 @@ const occupancyRows = await sql`
          -- LEAST/GREATEST ignoran NULL (unidades sin reservas darían el
          -- rango completo): el FILTER del agregado sólo suma reservas reales.
          COALESCE(SUM(
-           EXTRACT(EPOCH FROM least(upper(b.period), ${to}::timestamptz)
-                           - greatest(lower(b.period), ${from}::timestamptz)) / 86400
-         ) FILTER (WHERE b.id IS NOT NULL), 0) AS busy_days
+           EXTRACT(EPOCH FROM least(upper(s.period), ${to}::timestamptz)
+                           - greatest(lower(s.period), ${from}::timestamptz)) / 86400
+         ) FILTER (WHERE s.id IS NOT NULL), 0) AS busy_days
   FROM vehicles v
   JOIN vehicle_models m ON m.id = v.model_id
-  LEFT JOIN bookings b
-    ON b.vehicle_id = v.id
-   AND b.kind = 'rental'
-   AND b.status IN ('confirmed','active','completed')
-   AND b.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+  LEFT JOIN booking_segments s
+    ON s.vehicle_id = v.id
+   AND s.status IN ('reserved','active','completed')
+   AND s.period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
   GROUP BY v.id, m.name, v.plate
   ORDER BY busy_days DESC
 `;
@@ -118,9 +126,9 @@ const units = occupancyRows
 // ---- Canal -----------------------------------------------------------------
 const channelRows = await sql`
   SELECT COALESCE(requested->>'channel', 'sin_dato') AS channel, COUNT(*)::int AS n
-  FROM bookings
+  FROM bookings b
   WHERE kind = 'rental' AND status IN ('confirmed','active','completed')
-    AND period && tstzrange(${from}::timestamptz, ${to}::timestamptz, '[)')
+    AND ${touchesRange()}
   GROUP BY 1
 `;
 const channelLabel: Record<string, string> = { web: 'Web (cliente)', admin: 'Staff (manual)', sin_dato: 'Sin dato' };
