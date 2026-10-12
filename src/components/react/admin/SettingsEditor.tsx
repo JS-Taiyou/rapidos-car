@@ -34,15 +34,23 @@ export interface EditableChecklistItem {
   defaultChecked: boolean;
 }
 
+export interface EditableGoogle {
+  placeUrl: string;
+  rating: string;
+  reviewCount: string;
+}
+
 
 const COLORS = ['#0e7490', '#d97706', '#e11d48', '#0284c7', '#059669', '#475569'];
 
 export default function SettingsEditor({
   tenant,
   checklists,
+  google,
 }: {
   tenant: EditableTenant;
   checklists: { out: EditableChecklistItem[]; in: EditableChecklistItem[] };
+  google: EditableGoogle;
 }) {
   const [form, setForm] = useState({
     name: tenant.name,
@@ -55,6 +63,7 @@ export default function SettingsEditor({
   });
   const [logo, setLogo] = useState<TenantLogo>(tenant.logo);
   const [cl, setCl] = useState(checklists);
+  const [g, setG] = useState(google);
   const [saving, setSaving] = useState(false);
 
   function setPhone(i: number, value: string) {
@@ -77,6 +86,11 @@ export default function SettingsEditor({
           staffWhatsapp: form.staffWhatsapp.trim(),
           messengerUrl: form.messengerUrl.trim(),
           logo,
+          google: {
+            placeUrl: g.placeUrl.trim() || null,
+            rating: g.rating.trim() === '' ? null : Number(g.rating),
+            reviewCount: g.reviewCount.trim() === '' ? null : Number(g.reviewCount),
+          },
           checklists: {
             out: cl.out.filter((c) => c.label.trim().length > 1),
             in: cl.in.filter((c) => c.label.trim().length > 1),
@@ -293,6 +307,55 @@ export default function SettingsEditor({
               {logo.url && <p className="mt-2 truncate text-xs text-muted-foreground">{logo.url}</p>}
             </div>
           )}
+        </fieldset>
+
+        {/* ---------- Reputación Google (Fase 7.2) ---------- */}
+        <fieldset className="space-y-4 rounded-xl border bg-background p-5">
+          <legend className="px-1 text-sm font-semibold">Reputación (Google)</legend>
+          <div className="space-y-1.5">
+            <Label htmlFor="st-gmaps">Perfil de Google Maps</Label>
+            <Input
+              id="st-gmaps"
+              type="url"
+              placeholder="https://maps.google.com/?cid=…"
+              value={g.placeUrl}
+              onChange={(e) => setG({ ...g, placeUrl: e.target.value })}
+            />
+            <p className="text-xs text-muted-foreground">
+              El enlace del negocio en Maps; las estrellas de la home apuntan aquí. Vacío = sin bloque de reseñas.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="st-grating">Calificación (0–5)</Label>
+              <Input
+                id="st-grating"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={5}
+                step={0.1}
+                placeholder="4.8"
+                value={g.rating}
+                onChange={(e) => setG({ ...g, rating: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-gcount">Número de reseñas</Label>
+              <Input
+                id="st-gcount"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                placeholder="127"
+                value={g.reviewCount}
+                onChange={(e) => setG({ ...g, reviewCount: e.target.value })}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Captura manual por ahora (sin API key); se actualiza con Places API cuando haya dominio.
+          </p>
         </fieldset>
 
         {/* ---------- Checklists de entrega/devolución (Fase 3) ---------- */}

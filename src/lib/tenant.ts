@@ -28,6 +28,8 @@ export interface Tenant {
   staffWhatsapp: string;
   /** URL de Facebook Messenger (https://m.me/…). Vacío ⇒ botón oculto. */
   messengerUrl: string | null;
+  /** Reputación Google capturada a mano en Ajustes (sin API key). */
+  google: { placeUrl: string | null; rating: number | null; reviewCount: number | null };
   logo: TenantLogo;
 }
 
@@ -52,6 +54,7 @@ function defaults(): Tenant {
     publicWhatsapp: business.whatsapp,
     staffWhatsapp: '5219990000000',
     messengerUrl: null,
+    google: { placeUrl: null, rating: null, reviewCount: null },
     logo: { type: 'icon', icon: 'bolt', color: '#0e7490' },
   };
 }
@@ -78,6 +81,7 @@ export async function getTenant(): Promise<Tenant> {
         publicWhatsapp: str('whatsapp') !== null ? str('whatsapp') || null : d.publicWhatsapp,
         staffWhatsapp: str('staff_whatsapp') ?? d.staffWhatsapp,
         messengerUrl: str('messenger') ?? d.messengerUrl,
+        google: (map.get('tenant.google') as Tenant['google'] | undefined) ?? d.google,
         logo: (map.get('tenant.logo') as TenantLogo | undefined) ?? d.logo,
       };
       snapshot = tenant;

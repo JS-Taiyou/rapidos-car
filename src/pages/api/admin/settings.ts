@@ -26,6 +26,14 @@ const logoSchema = z.object({
   url: z.string().min(1).optional(),
 });
 
+// Reputación Google capturada a mano (sin API key ni dominio que verificar
+// todavía; upgrade a Places API cuando exista — ROADMAP 7.2).
+const googleSchema = z.object({
+  placeUrl: z.string().url('URL del place de Google Maps').nullable(),
+  rating: z.number().min(0).max(5).nullable(),
+  reviewCount: z.number().int().min(0).nullable(),
+});
+
 // Checklists de entrega/devolución editables en Ajustes (Fase 3).
 const checklistItem = z.object({
   id: z.string().min(1).max(40),
@@ -48,6 +56,7 @@ const settingsPatchSchema = z.object({
   // https://m.me/<pagina>; vacío = ocultar.
   messengerUrl: z.string().regex(/^https:\/\/(m\.me|www\.messenger\.com)\/[A-Za-z0-9.\-_]+$/, 'URL de m.me (ej. https://m.me/mipagina)').nullable().or(z.literal('')).optional(),
   logo: logoSchema.optional(),
+  google: googleSchema.optional(),
   checklists: checklistsSchema.optional(),
 });
 
@@ -94,6 +103,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     if (d.staffWhatsapp !== undefined) await upsert('tenant.staff_whatsapp', d.staffWhatsapp);
     if (d.messengerUrl !== undefined) await upsert('tenant.messenger', d.messengerUrl ?? '');
     if (d.logo !== undefined) await upsert('tenant.logo', d.logo);
+    if (d.google !== undefined) await upsert('tenant.google', d.google);
     if (d.checklists !== undefined) await upsert('handover_checklists', d.checklists);
   } catch (err) {
     console.error('PATCH /api/admin/settings falló:', err);

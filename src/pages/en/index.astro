@@ -137,5 +137,22 @@ const whatsappUrl = tenant.publicWhatsapp ? buildWhatsAppUrl(t('nav.whatsapp'), 
         )
       }
     </div>
+    {
+      tenant.google.rating !== null && tenant.google.placeUrl && (
+        <a
+          href={tenant.google.placeUrl}
+          target="_blank"
+          rel="noopener"
+          class="mt-6 inline-flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-sm shadow-sm transition-shadow hover:shadow"
+        >
+          <span class="tracking-widest text-amber-500">{'★'.repeat(Math.round(tenant.google.rating))}{'☆'.repeat(5 - Math.round(tenant.google.rating))}</span>
+          <span>
+            <strong>{tenant.google.rating.toFixed(1)}</strong>
+            {tenant.google.reviewCount !== null && ` · ${tenant.google.reviewCount} reviews`}
+            <span class="text-muted-foreground"> on Google</span>
+          </span>
+        </a>
+      )
+    }
   </section>
 </BaseLayout>

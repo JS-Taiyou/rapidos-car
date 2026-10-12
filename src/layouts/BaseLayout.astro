@@ -51,8 +51,17 @@ const jsonLd = {
     longitude: business.geo.lng,
   },
   openingHours: business.openingHours,
-  // TODO: URL del perfil de Google Business del negocio.
-  sameAs: [],
+  // Reputación capturada en Ajustes (manual hasta que haya dominio+Places API).
+  ...(tenant.google.rating !== null && tenant.google.reviewCount !== null
+    ? {
+        aggregateRating: {
+          '@type': 'AggregateRating',
+          ratingValue: tenant.google.rating,
+          reviewCount: tenant.google.reviewCount,
+        },
+      }
+    : {}),
+  sameAs: tenant.google.placeUrl ? [tenant.google.placeUrl] : [],
 };
 ---
 

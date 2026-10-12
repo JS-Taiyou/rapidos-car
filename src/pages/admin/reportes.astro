@@ -158,17 +158,25 @@ const dateShort = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZo
         <form method="get" class="flex items-end gap-2">
           <div>
             <label for="rp-from" class="block text-xs text-muted-foreground">Desde</label>
-            <input id="rp-from" type="date" name="from" value={fmtInput(from)}
+            <input id="rp-from" type="date" name="from" value={fmtInput(from)}"
               class="h-9 rounded-md border bg-background px-2 text-sm" />
           </div>
           <div>
             <label for="rp-to" class="block text-xs text-muted-foreground">Hasta</label>
-            <input id="rp-to" type="date" name="to" value={fmtInput(to)}
+            <input id="rp-to" type="date" name="to" value={fmtInput(to)}"
               class="h-9 rounded-md border bg-background px-2 text-sm" />
           </div>
           <button type="submit" class="h-9 rounded-md bg-brand px-4 text-sm font-medium text-white">
             Aplicar
           </button>
+          <!-- XLS para el contador: mismo rango visible. La exportación queda
+               en la auditoría. -->
+          <a
+            href={`/api/admin/export/rentas?from=${fmtInput(from)}&to=${fmtInput(to)}`}
+            class="inline-flex h-9 items-center rounded-md border bg-background px-4 text-sm font-medium hover:bg-accent"
+          >
+            ⬇ XLS
+          </a>
         </form>
       </div>
 

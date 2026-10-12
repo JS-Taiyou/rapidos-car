@@ -44,6 +44,11 @@ const checklists = await getHandoverChecklists();
           logo: tenant.logo,
         }}
         checklists={checklists}
+        google={{
+          placeUrl: tenant.google.placeUrl ?? '',
+          rating: tenant.google.rating?.toString() ?? '',
+          reviewCount: tenant.google.reviewCount?.toString() ?? '',
+        }}
       />
     </main>
   </body>
