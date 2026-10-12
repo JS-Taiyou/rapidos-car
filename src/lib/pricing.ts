@@ -12,6 +12,8 @@ export interface Season {
   /** [from, to) en YYYY-MM-DD, límites del daterange */
   period: [string, string];
   multiplier: number;
+  /** Desempate de solapes: mayor prioridad gana (Fase 6). */
+  priority: number;
 }
 
 export interface Extra {
@@ -88,6 +90,8 @@ export function computeQuote(
   for (let i = 0; i < daysCount; i++) {
     const dayDate = new Date(start.getTime() + i * 86_400_000);
     const key = meridaDateKey(dayDate);
+    // Solapes: decide la prioridad (mayor gana; empate → la que empieza
+    // antes; el sort es estable y loadPricingContext ya entregó el orden).
     const season = ctx.seasons.find(
       (s) => key >= s.period[0] && key < s.period[1],
     );
@@ -311,7 +315,7 @@ function parseMaybeJson<T>(value: unknown): T[] {
 // para no duplicar las ~30 líneas entre /api/quote y /api/bookings.
 export async function loadPricingContext(sql: Sql): Promise<PricingContext> {
   const [seasonRows, extraRows, settingRows] = await Promise.all([
-    sql`SELECT id, name, period, multiplier FROM seasons`,
+    sql`SELECT id, name, period, multiplier, priority FROM seasons`,
     sql`SELECT id, name, price_cents, per FROM extras WHERE active = true`,
     sql`SELECT key, value FROM settings`,
   ]);
@@ -330,13 +334,16 @@ export async function loadPricingContext(sql: Sql): Promise<PricingContext> {
   const points = (await getPickupPoints()).map((p) => ({ key: p.key, feeCents: p.feeCents }));
 
   return {
-    seasons: (seasonRows as unknown as Array<{ name: string; period: string; multiplier: string | number }>).map(
-      (r) => ({
+    seasons: (seasonRows as unknown as Array<{ name: string; period: string; multiplier: string | number; priority: number }>)
+      .map((r) => ({
         name: r.name,
         period: parseDaterange(r.period),
         multiplier: Number(r.multiplier),
-      }),
-    ),
+        priority: Number(r.priority ?? 0),
+      }))
+      // Mayor prioridad primero; empate → la que empieza antes (el find de
+      // computeQuote se queda con la primera coincidencia).
+      .sort((a, b) => b.priority - a.priority || (a.period[0] < b.period[0] ? -1 : 1)),
     extrasCatalog: (
       extraRows as unknown as Array<{ id: number; name: string; price_cents: number; per: 'day' | 'rental' }>
     ).map((r) => ({

@@ -1,0 +1,36 @@
+---
+// Admin — Tarifas (/admin/tarifas) — temporadas y extras del motor de
+// precios (ROADMAP Fase 6). Shell que monta RatesEditor; los datos viven en
+// /api/admin/seasons y /api/admin/extras.
+import { requireAdmin } from '../../lib/auth';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import '../../styles/global.css';
+import RatesEditor from '../../components/react/admin/RatesEditor.tsx';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Tarifas — Rapidoz Admin</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Tarifas</h1>
+        <p class="text-sm text-muted-foreground">
+          Temporadas (multiplicadores por fecha) y extras del motor de precios. Los cambios aplican a las cotizaciones nuevas.
+        </p>
+      </div>
+      <RatesEditor client:load />
+    </main>
+  </body>
+</html>
