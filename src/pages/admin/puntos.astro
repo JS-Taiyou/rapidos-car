@@ -30,7 +30,9 @@ if (admin instanceof Response) return admin;
     <AdminNav />
     <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
       <h1 class="text-2xl font-bold tracking-tight">Puntos de entrega y recogida</h1>
-      <PointsManager client:load />
+      <!-- client:only: Leaflet toca `window` al importarse; el mapa no aporta
+           nada al HTML inicial, así que la isla vive 100% en el cliente. -->
+      <PointsManager client:only="react" />
     </main>
   </body>
 </html>
