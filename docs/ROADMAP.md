@@ -1,5 +1,11 @@
 # Roadmap de fases — operaciones, PWA y quick wins
 
+> **Estado (oct 2026): TODAS las fases implementadas y verificadas** —
+> segmentos (006), auditoría (007+visor), handover (/admin/entregas),
+> replan (preview+PUT), PWA (manifest/sw.js/cola), tarifas (008+/admin/tarifas)
+> y quick wins (sitemap/robots, reviews Google, XLS). Las secciones abajo
+> conservan el diseño original de la planeación.
+
 Plan de implementación acordado (octubre 2026). Cada fase declara objetivo,
 modelo de datos, endpoints, UI, casos bordes y criterios de aceptación. La
 fuente de verdad de arquitectura sigue siendo `docs/ARCHITECTURE.md`; este
