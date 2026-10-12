@@ -18,6 +18,8 @@ import {
   DialogTitle,
 } from '../../ui/dialog';
 import { Toaster, toast } from '../../ui/sonner';
+import MoneyInput from '../../ui/money-input';
+import DateTimeField from '../../ui/datetime-field';
 import { enqueue, flushQueue, listQueue, type QueuedHandover } from '../../../lib/offline-queue';
 
 interface AgendaItem {
@@ -149,12 +151,12 @@ export default function HandoverBoard() {
           onClick={() => setDate(shiftDate(date, -1))}>
           ‹
         </Button>
-        <Input
-          type="date"
+        <DateTimeField
           value={date}
-          onChange={(e) => e.target.value && setDate(e.target.value)}
+          onChange={(v) => v && setDate(v)}
           className="h-12 w-auto text-base font-medium"
-          aria-label="Fecha de la agenda"
+          ariaLabel="Fecha de la agenda"
+          placeholder="Hoy"
         />
         <Button variant="outline" size="lg" className="h-12 w-12 p-0 text-xl" aria-label="Día siguiente"
           onClick={() => setDate(shiftDate(date, 1))}>
@@ -515,14 +517,15 @@ function HandoverDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label htmlFor="ho-odo" className="text-sm font-semibold">Odómetro (km)</label>
-              <Input
+              <MoneyInput
                 id="ho-odo"
-                type="number"
                 inputMode="numeric"
                 min={0}
                 step={1}
                 required
                 placeholder="45000"
+                prefix=""
+                suffix="km"
                 className="h-14 text-2xl tabular-nums"
                 value={odometer}
                 onChange={(e) => setOdometer(e.target.value)}

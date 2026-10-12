@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '../../ui/select';
 import { Toaster, toast } from '../../ui/sonner';
+import MoneyInput from '../../ui/money-input';
 
 interface SeasonRow {
   id: number;
@@ -398,8 +399,7 @@ export default function RatesEditor() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
-                        type="number"
+                      <MoneyInput
                         min={0}
                         step="0.01"
                         className="w-24"
@@ -457,7 +457,7 @@ export default function RatesEditor() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="nx-price">Precio (MXN)</Label>
-              <Input id="nx-price" type="number" min={0} step="0.01" className="w-24" required
+              <MoneyInput id="nx-price" min={0} step="0.01" className="w-24" required
                 value={newExtra.price} onChange={(e) => setNewExtra({ ...newExtra, price: e.target.value })} />
             </div>
             <div className="space-y-1">

@@ -37,6 +37,8 @@ import {
 } from '../../ui/dialog';
 import { Toaster, toast } from '../../ui/sonner';
 import { manualBookingSchema } from '../../../lib/validation';
+import MoneyInput from '../../ui/money-input';
+import DateTimeField from '../../ui/datetime-field';
 
 interface AdminBooking {
   id: number;
@@ -547,11 +549,11 @@ export default function ReservationsBoard() {
           <>
             <div className="space-y-1">
               <Label htmlFor="rb-from">Desde</Label>
-              <Input id="rb-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <DateTimeField value={from} onChange={setFrom} ariaLabel="Desde" className="w-40" placeholder="Desde" />
             </div>
             <div className="space-y-1">
               <Label htmlFor="rb-to">Hasta</Label>
-              <Input id="rb-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <DateTimeField value={to} onChange={setTo} ariaLabel="Hasta" className="w-40" placeholder="Hasta" />
             </div>
           </>
         )}
@@ -856,21 +858,11 @@ export default function ReservationsBoard() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ed-start">Inicio</Label>
-                <Input
-                  id="ed-start"
-                  type="datetime-local"
-                  value={editForm.start}
-                  onChange={(e) => setEditForm({ ...editForm, start: e.target.value })}
-                />
+                <DateTimeField value={editForm.start} onChange={(v) => setEditForm({ ...editForm, start: v })} withTime ariaLabel="Inicio" placeholder="Elegir inicio" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ed-end">Fin</Label>
-                <Input
-                  id="ed-end"
-                  type="datetime-local"
-                  value={editForm.end}
-                  onChange={(e) => setEditForm({ ...editForm, end: e.target.value })}
-                />
+                <DateTimeField value={editForm.end} onChange={(v) => setEditForm({ ...editForm, end: v })} withTime ariaLabel="Fin" placeholder="Elegir fin" />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -948,9 +940,8 @@ export default function ReservationsBoard() {
           <form onSubmit={submitReprice} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="rp-rate">Tarifa diaria fija (MXN)</Label>
-              <Input
+              <MoneyInput
                 id="rp-rate"
-                type="number"
                 min={0}
                 placeholder="Tarifa del catálogo"
                 value={repriceRate}
@@ -970,16 +961,25 @@ export default function ReservationsBoard() {
                     <SelectItem value="amount">$</SelectItem>
                   </SelectContent>
                 </Select>
-                {repriceKind !== 'none' && (
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder={repriceKind === 'pct' ? '10' : '150'}
-                    value={repriceValue}
-                    onChange={(e) => setRepriceValue(e.target.value)}
-                    aria-label="Valor del descuento"
-                  />
-                )}
+                {repriceKind !== 'none' &&
+                  (repriceKind === 'pct' ? (
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="10"
+                      value={repriceValue}
+                      onChange={(e) => setRepriceValue(e.target.value)}
+                      aria-label="Valor del descuento"
+                    />
+                  ) : (
+                    <MoneyInput
+                      min={0}
+                      placeholder="150"
+                      value={repriceValue}
+                      onChange={(e) => setRepriceValue(e.target.value)}
+                      aria-label="Valor del descuento"
+                    />
+                  ))}
               </div>
             </div>
             <div className="space-y-1.5">
@@ -1087,12 +1087,12 @@ export default function ReservationsBoard() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="cap-start">Inicio</Label>
-                <Input id="cap-start" type="datetime-local" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} />
+                <DateTimeField value={form.start} onChange={(v) => setForm({ ...form, start: v })} withTime ariaLabel="Inicio" placeholder="Elegir inicio" />
                 {formErrors.start && <p className="text-xs text-destructive">{formErrors.start}</p>}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="cap-end">Fin</Label>
-                <Input id="cap-end" type="datetime-local" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })} />
+                <DateTimeField value={form.end} onChange={(v) => setForm({ ...form, end: v })} withTime ariaLabel="Fin" placeholder="Elegir fin" />
                 {formErrors.end && <p className="text-xs text-destructive">{formErrors.end}</p>}
               </div>
             </div>
@@ -1137,13 +1137,11 @@ export default function ReservationsBoard() {
                               }))
                             }
                           />
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-muted-foreground">$</span>
-                            <input
-                              type="number"
+                          <div className="flex w-24 items-center gap-1">
+                            <MoneyInput
                               min={0}
                               step="0.01"
-                              className="h-8 w-20 rounded-md border px-2 text-sm"
+                              className="h-8 w-20"
                               value={sel.price}
                               aria-label={`Precio ${extra.name}`}
                               onChange={(e) =>
@@ -1153,7 +1151,7 @@ export default function ReservationsBoard() {
                                 }))
                               }
                             />
-                            <span className="text-xs text-muted-foreground">/ {extra.per === 'day' ? 'día' : 'renta'}</span>
+                            <span className="whitespace-nowrap text-xs text-muted-foreground">/ {extra.per === 'day' ? 'día' : 'renta'}</span>
                           </div>
                         </>
                       )}
@@ -1169,9 +1167,8 @@ export default function ReservationsBoard() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label htmlFor="cap-rate">Tarifa diaria fija (MXN)</Label>
-                    <Input
+                    <MoneyInput
                       id="cap-rate"
-                      type="number"
                       min={0}
                       placeholder="Catálogo"
                       value={rateOverride}
@@ -1191,16 +1188,25 @@ export default function ReservationsBoard() {
                           <SelectItem value="amount">$</SelectItem>
                         </SelectContent>
                       </Select>
-                      {discountKind !== 'none' && (
-                        <Input
-                          type="number"
-                          min={0}
-                          placeholder={discountKind === 'pct' ? '10' : '150'}
-                          value={discountValue}
-                          onChange={(e) => setDiscountValue(e.target.value)}
-                          aria-label="Valor del descuento"
-                        />
-                      )}
+                      {discountKind !== 'none' &&
+                        (discountKind === 'pct' ? (
+                          <Input
+                            type="number"
+                            min={0}
+                            placeholder="10"
+                            value={discountValue}
+                            onChange={(e) => setDiscountValue(e.target.value)}
+                            aria-label="Valor del descuento"
+                          />
+                        ) : (
+                          <MoneyInput
+                            min={0}
+                            placeholder="150"
+                            value={discountValue}
+                            onChange={(e) => setDiscountValue(e.target.value)}
+                            aria-label="Valor del descuento"
+                          />
+                        ))}
                     </div>
                   </div>
                 </div>
@@ -1442,22 +1448,23 @@ function ReplanDialog({
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Input
-                  type="datetime-local"
+                <DateTimeField
                   value={row.start}
+                  withTime
                   aria-label={`Inicio del tramo ${i + 1}`}
-                  onChange={(e) => setRow(i, { start: e.target.value })}
+                  placeholder="Inicio"
+                  onChange={(v) => setRow(i, { start: v })}
                 />
-                <Input
-                  type="datetime-local"
+                <DateTimeField
                   value={row.end}
+                  withTime
                   aria-label={`Fin del tramo ${i + 1}`}
-                  onChange={(e) => setRow(i, { end: e.target.value })}
+                  placeholder="Fin"
+                  onChange={(v) => setRow(i, { end: v })}
                 />
               </div>
               <div>
-                <Input
-                  type="number"
+                <MoneyInput
                   min={0}
                   inputMode="numeric"
                   placeholder={
@@ -1520,11 +1527,10 @@ function ReplanDialog({
           <p className="text-sm font-medium">Ajuste del cobro (opcional)</p>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1">
-              <Input
-                type="number"
+              <MoneyInput
                 min={0}
                 inputMode="numeric"
-                placeholder={preview ? `Cobrar ${moneyFmt.format(preview.totals.proposedCents / 100)} (total del plan)` : 'Cobrar total $ (IVA incl.)'}
+                placeholder={preview ? `Cobrar ${moneyFmt.format(preview.totals.proposedCents / 100)} (total del plan)` : 'Cobrar total (IVA incl.)'}
                 value={chargeTotal}
                 onChange={(e) => {
                   setChargeTotal(e.target.value);

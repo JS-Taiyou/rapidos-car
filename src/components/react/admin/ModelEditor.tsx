@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '../../ui/dialog';
 import { Toaster, toast } from '../../ui/sonner';
+import MoneyInput from '../../ui/money-input';
 import PhotoDropzone, { GALLERY_DRAG_TYPE } from './PhotoDropzone';
 import { vehicleUpsertSchema } from '../../../lib/validation';
 
@@ -79,6 +80,27 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
   // Confirmación de borrado: la URL de la foto candidata.
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // Unidades (placas): status editable al instante vía PATCH parcial.
+  const [units, setUnits] = useState(model.units);
+  const [newPlate, setNewPlate] = useState('');
+  const [confirmDisable, setConfirmDisable] = useState(false);
+
+  async function patchUnits(body: Record<string, unknown>) {
+    const res = await fetch(`/api/admin/vehicles/${model.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { model?: { units: Array<{ id: number; plate: string; status: string }> } };
+      if (data.model?.units) setUnits(data.model.units);
+      return true;
+    }
+    const data = (await res.json().catch(() => ({}))) as { plate?: string; error?: string };
+    toast.error(data.plate ? `La placa ${data.plate} ya existe` : 'No se pudo actualizar la unidad');
+    return false;
+  }
+
   // Drag & drop del reorden (HTML5 nativo, sin librerías).
   const dragFrom = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -123,6 +145,12 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    // Deshabilitar un modelo con varias unidades: confirmación explícita.
+    if (!active && model.active && units.length > 1 && !confirmDisable) {
+      setConfirmDisable(true);
+      return;
+    }
+    setConfirmDisable(false);
     setSaving(true);
     setErrors({});
     try {
@@ -261,7 +289,7 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="me-rate">Tarifa por día (MXN)</Label>
-            <Input id="me-rate" type="number" min={0} step="0.01" value={dailyRate} onChange={(e) => setDailyRate(Number(e.target.value))} />
+            <MoneyInput id="me-rate" min={0} step="0.01" value={dailyRate} onChange={(e) => setDailyRate(Number(e.target.value))} />
             {errors.dailyRateCents && <p className="text-xs text-destructive">{errors.dailyRateCents}</p>}
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -271,7 +299,7 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
               checked={active}
               onChange={(e) => setActive(e.target.checked)}
             />
-            Activo (visible en el catálogo público)
+            Habilitado (visible en el catálogo público)
           </label>
           <div className="pt-2">
             <Button type="submit" disabled={saving}>
@@ -354,6 +382,71 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
           </div>
 
           <PhotoDropzone onFiles={addFiles} />
+        </fieldset>
+        {/* Unidades: todas las placas con su status, editable al instante. */}
+        <fieldset className="space-y-3 rounded-xl border bg-background p-5 lg:col-span-2">
+          <legend className="px-1 text-sm font-semibold">Unidades ({units.length})</legend>
+          {units.length === 0 && (
+            <p className="text-sm text-muted-foreground">Sin unidades registradas: agrega la primera placa.</p>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {units.map((unit) => (
+              <div key={unit.id} className="flex items-center gap-2 rounded-lg border p-2">
+                <span className="flex-1 truncate rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-xs font-bold tracking-wider text-slate-700">
+                  {unit.plate}
+                </span>
+                <Select
+                  value={unit.status}
+                  onValueChange={(v) => patchUnits({ setUnitStatus: { unitId: unit.id, status: v } })}
+                >
+                  <SelectTrigger className="h-9 w-36" aria-label={`Estado de ${unit.plate}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Activa</SelectItem>
+                    <SelectItem value="maintenance">Taller</SelectItem>
+                    <SelectItem value="retired">Retirada</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+          <div className="flex max-w-md items-center gap-2">
+            <Input
+              placeholder="Nueva placa (ej. YXB-1236)"
+              value={newPlate}
+              onChange={(e) => setNewPlate(e.target.value)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                const plate = newPlate.trim();
+                if (!plate) return;
+                if (await patchUnits({ addUnits: [{ plate }] })) {
+                  setNewPlate('');
+                  toast.success(`Placa ${plate} agregada`);
+                }
+              }}
+            >
+              Agregar
+            </Button>
+          </div>
+          {confirmDisable && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">
+                Esto deshabilitará las {units.length} unidades de este modelo y dejará de cotizarse. ¿Deseas continuar?
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Button type="button" size="sm" variant="destructive" onClick={() => { setConfirmDisable(false); save({ preventDefault: () => undefined } as unknown as React.FormEvent); }}>
+                  Sí, deshabilitar
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setConfirmDisable(false)}>
+                  No, dejarlo habilitado
+                </Button>
+              </div>
+            </div>
+          )}
         </fieldset>
       </form>
 

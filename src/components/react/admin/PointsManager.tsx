@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '../../ui/dialog';
 import { Toaster, toast } from '../../ui/sonner';
+import MoneyInput from '../../ui/money-input';
 
 interface Point {
   id: number;
@@ -208,7 +209,7 @@ export default function PointsManager() {
             </div>
             <div className="max-w-[12rem] space-y-1.5">
               <Label htmlFor="pt-fee">Tarifa de servicio (MXN)</Label>
-              <Input id="pt-fee" type="number" min={0} step="0.01" placeholder="Gratis" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} />
+              <MoneyInput id="pt-fee" min={0} step="0.01" placeholder="Gratis" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} />
             </div>
 
             <MapPicker pin={pin} onChange={setPin} />

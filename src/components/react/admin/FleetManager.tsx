@@ -68,6 +68,10 @@ function slugify(text: string): string {
 }
 
 const CATEGORIES = ['small', 'compact', 'medium', 'large', 'van', 'cargo'];
+const CATEGORY_LABEL: Record<string, string> = {
+  small: 'Chico', compact: 'Compacto', medium: 'Mediano', large: 'Grande', van: 'Van', cargo: 'Carga',
+};
+const TRANSMISSION_LABEL: Record<string, string> = { automatic: 'Automática', manual: 'Estándar' };
 const emptyModel = {
   name: '',
   slug: '',
@@ -88,6 +92,7 @@ export default function FleetManager() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ModelRow | null>(null);
+  const [confirmDisable, setConfirmDisable] = useState<ModelRow | null>(null);
   const [retireUnits, setRetireUnits] = useState(true);
   const [newPlates, setNewPlates] = useState<Record<number, string>>({});
   // Fotos recién seleccionadas: preview con blob: URLs (locales al navegador,
@@ -237,6 +242,16 @@ export default function FleetManager() {
     if (res.ok) await loadFleet();
   }
 
+  // Deshabilitar un modelo con varias unidades es una acción masiva: se
+  // pide confirmación explícita antes de apagarlas todas.
+  function requestToggleActive(model: ModelRow) {
+    if (!model.active || model.units.length <= 1) {
+      toggleActive(model);
+      return;
+    }
+    setConfirmDisable(model);
+  }
+
   async function deleteModel() {
     if (!deleteTarget) return;
     const res = await fetch(`/api/admin/vehicles/${deleteTarget.id}`, {
@@ -286,6 +301,17 @@ export default function FleetManager() {
     if (res.ok) await loadFleet();
   }
 
+  // Filtros de catálogo: categoría y transmisión. Operan sobre TODA la
+  // flota (incluidos los modelos deshabilitados): buscar un modelo inactivo
+  // no debe requerir un paso previo.
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterTransmission, setFilterTransmission] = useState('all');
+  const visibleModels = models.filter(
+    (m) =>
+      (filterCategory === 'all' || m.category === filterCategory) &&
+      (filterTransmission === 'all' || m.transmission === filterTransmission),
+  );
+
   function toggleExpanded(id: number) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -298,58 +324,104 @@ export default function FleetManager() {
   return (
     <div className="space-y-6">
       <Toaster />
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Los modelos inactivos dejan de cotizarse; el historial siempre se conserva.
+          Los modelos deshabilitados dejan de cotizarse; el historial siempre se conserva.
         </p>
         <Button onClick={openCreate}>+ Nuevo modelo</Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <div className="w-44 space-y-1">
+          <Label htmlFor="flt-category" className="text-xs">Categoría</Label>
+          <Select value={filterCategory} onValueChange={setFilterCategory}>
+            <SelectTrigger id="flt-category" className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas</SelectItem>
+              {CATEGORIES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {CATEGORY_LABEL[c] ?? c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-44 space-y-1">
+          <Label htmlFor="flt-transmission" className="text-xs">Transmisión</Label>
+          <Select value={filterTransmission} onValueChange={setFilterTransmission}>
+            <SelectTrigger id="flt-transmission" className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas</SelectItem>
+              <SelectItem value="automatic">Automática</SelectItem>
+              <SelectItem value="manual">Estándar</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="ml-auto self-end text-xs text-muted-foreground">
+          {visibleModels.length} de {models.length} modelo(s) · los deshabilitados incluidos
+        </p>
       </div>
 
       <div className="rounded-xl border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-8" />
               <TableHead>Modelo</TableHead>
               <TableHead>Categoría</TableHead>
+              <TableHead>Transmisión</TableHead>
               <TableHead>Tarifa/día</TableHead>
               <TableHead>Unidades</TableHead>
-              <TableHead>Activo</TableHead>
+              <TableHead>Habilitado</TableHead>
               <TableHead>Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {models.length === 0 && (
+            {visibleModels.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  Sin modelos. Crea el primero con “+ Nuevo modelo”.
+                  {models.length === 0
+                    ? 'Sin modelos. Crea el primero con “+ Nuevo modelo”.'
+                    : 'Ningún modelo coincide con los filtros.'}
                 </TableCell>
               </TableRow>
             )}
-            {models.map((model) => (
+            {visibleModels.map((model) => (
               <Fragment key={model.id}>
                 <TableRow>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" onClick={() => toggleExpanded(model.id)} aria-label="Unidades">
-                      {expanded.has(model.id) ? '▾' : '▸'}
-                    </Button>
-                  </TableCell>
                   <TableCell>
                     <span className="font-medium">{model.name}</span>
                     <span className="block font-mono text-xs text-muted-foreground">/flota/{model.slug}</span>
                   </TableCell>
-                  <TableCell className="capitalize">{model.category}</TableCell>
+                  <TableCell>{CATEGORY_LABEL[model.category] ?? model.category}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{TRANSMISSION_LABEL[model.transmission] ?? model.transmission}</Badge>
+                  </TableCell>
                   <TableCell>{moneyFmt.format(model.dailyRateCents / 100)}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{model.units.length}</Badge>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(model.id)}
+                      className="flex h-9 items-center gap-1.5 rounded-lg border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent"
+                      aria-label={`Unidades de ${model.name}`}
+                      aria-expanded={expanded.has(model.id)}
+                    >
+                      <span className="text-base leading-none">🚗</span>
+                      {model.units.length}
+                      <span className="text-xs text-muted-foreground">{model.units.length === 1 ? 'unidad' : 'unidades'}</span>
+                      <span className="text-xs text-muted-foreground">{expanded.has(model.id) ? '▾' : '▸'}</span>
+                    </button>
                   </TableCell>
                   <TableCell>
                     <input
                       type="checkbox"
                       className="h-4 w-4 accent-[#0e7490]"
                       checked={model.active}
-                      onChange={() => toggleActive(model)}
-                      aria-label={`Activo ${model.name}`}
+                      onChange={() => requestToggleActive(model)}
+                      aria-label={`Habilitado ${model.name}`}
                     />
                   </TableCell>
                   <TableCell>
@@ -451,7 +523,7 @@ export default function FleetManager() {
                   <SelectContent>
                     {CATEGORIES.map((c) => (
                       <SelectItem key={c} value={c}>
-                        {{ small: 'Chico', compact: 'Compacto', medium: 'Mediano', large: 'Grande', van: 'Van', cargo: 'Carga' }[c] ?? c}
+                        {CATEGORY_LABEL[c] ?? c}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -593,6 +665,32 @@ export default function FleetManager() {
             </Button>
             <Button variant="destructive" onClick={deleteModel}>
               Dar de baja
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Deshabilitar un modelo con varias placas: confirmación explícita. */}
+      <Dialog open={confirmDisable !== null} onOpenChange={(open) => !open && setConfirmDisable(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Deshabilitar {confirmDisable?.name}?</DialogTitle>
+            <DialogDescription>
+              Esto deshabilitará las {confirmDisable?.units.length ?? 0} unidades de este modelo y dejará de
+              cotizarse en el sitio. ¿Deseas continuar?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDisable(null)}>
+              No, dejarlo como está
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (confirmDisable) toggleActive(confirmDisable);
+                setConfirmDisable(null);
+              }}
+            >
+              Sí, deshabilitar
             </Button>
           </DialogFooter>
         </DialogContent>
