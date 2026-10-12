@@ -5,6 +5,7 @@ import type { APIContext } from 'astro';
 import { sql } from '../../lib/db';
 import { loginSchema } from '../../lib/validation';
 import { createSession, hashToken, verifyPassword, SESSION_COOKIE, cookieOptions } from '../../lib/auth';
+import { logAudit } from '../../lib/audit';
 
 export const prerender = false;
 
@@ -70,12 +71,22 @@ export async function POST(context: APIContext): Promise<Response> {
   const ok = await verifyPassword(password, row?.password_hash ?? DUMMY_HASH);
   if (!row || !ok) {
     registerFailedAttempt(ip);
+    await logAudit(sql, row ? { id: Number(row.id), email } : null, {
+      action: 'login_failed',
+      entity: 'session',
+      summary: `Credenciales inválidas para ${email}`,
+    }, context);
     return json({ error: 'invalid_credentials' }, 401);
   }
 
   attempts.delete(ip);
   const token = await createSession(sql, Number(row.id));
   context.cookies.set(SESSION_COOKIE, token, cookieOptions);
+  await logAudit(sql, { id: Number(row.id), email }, {
+    action: 'login',
+    entity: 'session',
+    summary: `Sesión iniciada (${ip})`,
+  }, context);
   return json({ ok: true });
 }
 
@@ -86,7 +97,17 @@ export async function DELETE(context: APIContext): Promise<Response> {
     // Borrado REAL en BD: la sesión queda revocada aunque alguien hubiera
     // copiado la cookie.
     const tokenHash = await hashToken(token);
-    await sql`DELETE FROM sessions WHERE token_hash = ${tokenHash}`;
+    const deleted = await sql`DELETE FROM sessions WHERE token_hash = ${tokenHash} RETURNING user_id`;
+    if (deleted.length > 0) {
+      const user = await sql`SELECT id, email FROM admin_users WHERE id = ${Number(deleted[0].user_id)}`;
+      if (user[0]) {
+        await logAudit(sql, { id: Number(user[0].id), email: user[0].email as string }, {
+          action: 'logout',
+          entity: 'session',
+          summary: 'Sesión cerrada',
+        }, context);
+      }
+    }
   }
   // Mismo path que al setear, o el navegador no la borra.
   context.cookies.delete(SESSION_COOKIE, { path: '/' });

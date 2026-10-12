@@ -6,6 +6,7 @@ import { sql } from '../../../../lib/db';
 import { requireAdminApi } from '../../../../lib/auth';
 import { vehicleUpsertSchema } from '../../../../lib/validation';
 import { invalidateFleetCache } from '../../../../lib/fleet-cache';
+import { logAudit } from '../../../../lib/audit';
 
 export const prerender = false;
 
@@ -107,6 +108,13 @@ export async function PATCH(context: APIContext): Promise<Response> {
     }
 
     invalidateFleetCache();
+    await logAudit(sql, admin, {
+      action: 'update',
+      entity: 'model',
+      entityId: id,
+      summary: `Modelo ${model.name} actualizado${Object.keys(columns).length > 0 ? ` (${Object.keys(columns).join(', ')})` : ''}${addUnits?.length ? ` · +${addUnits.length} unidad(es)` : ''}${setUnitStatus ? ` · unidad ${setUnitStatus.unitId} → ${setUnitStatus.status}` : ''}`,
+      diff: Object.fromEntries(Object.entries(columns).map(([k, v]) => [k, { after: v }])),
+    }, context);
     // Re-lectura con el merge de unidades (mismo patrón que el GET).
     const units = await sql`
       SELECT id, plate, status FROM vehicles WHERE model_id = ${id} ORDER BY plate
@@ -165,6 +173,12 @@ export async function DELETE(context: APIContext): Promise<Response> {
   }
 
   invalidateFleetCache();
+  await logAudit(sql, admin, {
+    action: 'delete',
+    entity: 'model',
+    entityId: id,
+    summary: `Modelo ${rows[0].name} desactivado (borrado lógico)${retireUnits ? ' · unidades retiradas' : ''}`,
+  }, context);
   return json({ ok: true, model: toModel(rows[0], []) });
 }
 

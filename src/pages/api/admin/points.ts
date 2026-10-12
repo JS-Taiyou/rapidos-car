@@ -4,6 +4,7 @@ import type { APIContext } from 'astro';
 import { z } from 'zod';
 import { sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
+import { logAudit } from '../../../lib/audit';
 import { invalidatePickupPointsCache, getPickupPoints } from '../../../lib/pickup-points';
 
 export const prerender = false;
@@ -55,6 +56,12 @@ export async function POST(context: APIContext): Promise<Response> {
       RETURNING *
     `;
     invalidatePickupPointsCache();
+    await logAudit(sql, admin, {
+      action: 'create',
+      entity: 'point',
+      entityId: Number(rows[0].id),
+      summary: `Punto de entrega "${d.name}" (${d.key}) creado`,
+    }, context);
     return json({ point: rows[0] }, 201);
   } catch (err) {
     if ((err as { code?: string }).code === '23505') {

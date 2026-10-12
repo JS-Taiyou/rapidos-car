@@ -24,6 +24,7 @@ import {
 import { pickFreeUnit, isUnitFree } from '../../../../lib/availability';
 import { broadcastBookingStatus } from '../../../../lib/alerts';
 import { recalcBookingTotals } from '../../../../lib/segments';
+import { logAudit, diffFields } from '../../../../lib/audit';
 
 export const prerender = false;
 
@@ -173,6 +174,16 @@ export async function PATCH(context: APIContext): Promise<Response> {
       RETURNING *
     `;
     await recalcBookingTotals(sql, id);
+    await logAudit(sql, admin, {
+      action: 'reprice',
+      entity: 'segment',
+      entityId: Number(seg.id),
+      summary: `${booking.code} (tramo ${seg.idx}): total ${(Number(seg.total_cents) / 100).toFixed(2)} → ${(pricing.totalCents / 100).toFixed(2)} MXN${reprice.reason ? ` — ${reprice.reason}` : ''}`,
+      diff: {
+        total_cents: { before: seg.total_cents, after: pricing.totalCents },
+        ...(reprice.dailyRateCents !== undefined ? { dailyRateCents: { before: model.dailyRateCents, after: reprice.dailyRateCents } } : {}),
+      },
+    }, context);
     const bookingAfter = await sql`SELECT * FROM bookings WHERE id = ${id}`;
     return json({ booking: bookingAfter[0], segment: updated[0] });
   }
@@ -293,6 +304,23 @@ export async function PATCH(context: APIContext): Promise<Response> {
       return json({ error: 'unavailable' }, 409);
     }
     await recalcBookingTotals(sql, id);
+    const changedBits: string[] = [];
+    if (result.modelName !== seg.model_name) changedBits.push('modelo');
+    if (newStart.getTime() !== new Date(seg.period_start).getTime() || newEnd.getTime() !== new Date(seg.period_end).getTime()) changedBits.push('fechas');
+    if (newZone !== seg.pickup_zone) changedBits.push('zona');
+    if (edit.extras !== undefined) changedBits.push('extras');
+    await logAudit(sql, admin, {
+      action: 'edit',
+      entity: 'segment',
+      entityId: Number(seg.id),
+      summary: `${booking.code} (tramo ${seg.idx}) editado: ${changedBits.join(', ') || 'datos'} — ${(Number(seg.total_cents) / 100).toFixed(2)} → ${(Number(result.segment.total_cents) / 100).toFixed(2)} MXN`,
+      diff: {
+        model: { before: seg.model_name, after: result.modelName },
+        period_start: { before: seg.period_start, after: newStart },
+        period_end: { before: seg.period_end, after: newEnd },
+        vehicle_id: { before: seg.vehicle_id, after: result.segment.vehicle_id },
+      },
+    }, context);
     const bookingAfter = await sql`SELECT * FROM bookings WHERE id = ${id}`;
     return json({ booking: bookingAfter[0], segment: result.segment, modelName: result.modelName });
   }
@@ -354,6 +382,15 @@ export async function PATCH(context: APIContext): Promise<Response> {
       RETURNING *
     `;
     await recalcBookingTotals(sql, id);
+    if (to !== undefined) {
+      await logAudit(sql, admin, {
+        action: 'status',
+        entity: 'booking',
+        entityId: id,
+        summary: `${booking.code}: ${booking.status} → ${to}`,
+        diff: diffFields({ status: booking.status }, { status: to }),
+      }, context);
+    }
     return json({ booking: updated[0] });
   } catch (err) {
     // Confirmar un lead cuyas fechas siguen chocando con la reserva que

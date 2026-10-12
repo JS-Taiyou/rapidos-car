@@ -1,0 +1,250 @@
+---
+// Admin — Auditoría (/admin/auditoría) — SSR, sin isla: el registro de quién
+// hizo qué, cuándo y con qué diff (ROADMAP Fase 2). Filtros por usuario,
+// entidad, acción y rango de fechas; el diff se expande por fila con
+// <details> nativo (cero JS).
+import { requireAdmin } from '../../lib/auth';
+import { sql } from '../../lib/db';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import '../../styles/global.css';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const params = Astro.url.searchParams;
+const page = Math.max(1, parseInt(params.get('page') ?? '1', 10) || 1);
+const PER_PAGE = 50;
+
+// Filtros blanc: lista cerrada de columnas, valores escapados por postgres.js.
+const conds = [sql`TRUE`];
+const fUser = params.get('user');
+const fEntity = params.get('entity');
+const fAction = params.get('action');
+const fFrom = params.get('from');
+const fTo = params.get('to');
+if (fUser) conds.push(sql`a.user_email = ${fUser}`);
+if (fEntity) conds.push(sql`a.entity = ${fEntity}`);
+if (fAction) conds.push(sql`a.action = ${fAction}`);
+if (fFrom) conds.push(sql`a.at >= ${fFrom}::timestamptz`);
+if (fTo) conds.push(sql`a.at < (${fTo}::timestamptz + interval '1 day')`);
+const where = conds.reduce((acc, c) => sql`${acc} AND ${c}`);
+
+const [rows, countRows, users, entities, actions] = await Promise.all([
+  sql`
+    SELECT a.* FROM audit_log a
+    WHERE ${where}
+    ORDER BY a.at DESC
+    LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}
+  `,
+  sql`SELECT count(*)::int AS n FROM audit_log a WHERE ${where}`,
+  sql`SELECT DISTINCT user_email FROM audit_log ORDER BY 1`,
+  sql`SELECT DISTINCT entity FROM audit_log ORDER BY 1`,
+  sql`SELECT DISTINCT action FROM audit_log ORDER BY 1`,
+]);
+
+const total = Number(countRows[0]?.n ?? 0);
+const pages = Math.max(1, Math.ceil(total / PER_PAGE));
+
+const dtFmt = new Intl.DateTimeFormat('es-MX', {
+  dateStyle: 'short',
+  timeStyle: 'medium',
+  timeZone: 'America/Merida',
+});
+
+// Chips de color por familia de acción.
+const ACTION_TONE: Record<string, string> = {
+  create: 'bg-emerald-100 text-emerald-800',
+  update: 'bg-sky-100 text-sky-800',
+  edit: 'bg-sky-100 text-sky-800',
+  status: 'bg-indigo-100 text-indigo-800',
+  reprice: 'bg-amber-100 text-amber-800',
+  delete: 'bg-red-100 text-red-800',
+  merge: 'bg-fuchsia-100 text-fuchsia-800',
+  login: 'bg-gray-100 text-gray-700',
+  login_failed: 'bg-red-100 text-red-800',
+  logout: 'bg-gray-100 text-gray-700',
+  settings: 'bg-teal-100 text-teal-800',
+};
+
+const fmtVal = (v: unknown): string => {
+  if (v === null || v === undefined) return '—';
+  if (typeof v === 'number' && String(v).length >= 6) {
+    // centavos grandes o timestamps: tal cual
+    return String(v);
+  }
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return s.length > 90 ? `${s.slice(0, 90)}…` : s;
+};
+
+const qs = (extra: Record<string, string>): string => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...Object.fromEntries(params), ...extra })) {
+    if (v) p.set(k, v);
+  }
+  const s = p.toString();
+  return s ? `?${s}` : '';
+};
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Auditoría — Rapidoz Admin</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">Auditoría</h1>
+          <p class="text-sm text-muted-foreground">{total} evento(s) · página {page} de {pages}</p>
+        </div>
+        <form method="get" class="flex flex-wrap items-end gap-2">
+          <div>
+            <label for="au-user" class="block text-xs text-muted-foreground">Usuario</label>
+            <select id="au-user" name="user" class="h-9 rounded-md border bg-background px-2 text-sm">
+              <option value="">Todos</option>
+              {users.map((u) => (
+                <option value={u.user_email as string} selected={fUser === u.user_email}>
+                  {u.user_email}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label for="au-entity" class="block text-xs text-muted-foreground">Entidad</label>
+            <select id="au-entity" name="entity" class="h-9 rounded-md border bg-background px-2 text-sm">
+              <option value="">Todas</option>
+              {entities.map((e) => (
+                <option value={e.entity as string} selected={fEntity === e.entity}>
+                  {e.entity}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label for="au-action" class="block text-xs text-muted-foreground">Acción</label>
+            <select id="au-action" name="action" class="h-9 rounded-md border bg-background px-2 text-sm">
+              <option value="">Todas</option>
+              {actions.map((a) => (
+                <option value={a.action as string} selected={fAction === a.action}>
+                  {a.action}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label for="au-from" class="block text-xs text-muted-foreground">Desde</label>
+            <input id="au-from" type="date" name="from" value={fFrom ?? ''}
+              class="h-9 rounded-md border bg-background px-2 text-sm" />
+          </div>
+          <div>
+            <label for="au-to" class="block text-xs text-muted-foreground">Hasta</label>
+            <input id="au-to" type="date" name="to" value={fTo ?? ''}
+              class="h-9 rounded-md border bg-background px-2 text-sm" />
+          </div>
+          <button type="submit" class="h-9 rounded-md bg-brand px-4 text-sm font-medium text-white">
+            Filtrar
+          </button>
+        </form>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border bg-background">
+        {
+          rows.length === 0 ? (
+            <p class="px-5 py-10 text-center text-sm text-muted-foreground">
+              Sin eventos para estos filtros.
+            </p>
+          ) : (
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th class="px-5 py-2">Cuándo</th>
+                  <th class="px-3 py-2">Usuario</th>
+                  <th class="px-3 py-2">Acción</th>
+                  <th class="px-3 py-2">Resumen</th>
+                  <th class="px-3 py-2">IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const diff = (r.diff ?? {}) as Record<string, { before?: unknown; after?: unknown }>;
+                  const diffKeys = Object.keys(diff);
+                  return (
+                    <tr class="border-b align-top last:border-0">
+                      <td class="whitespace-nowrap px-5 py-2.5 font-mono text-xs text-muted-foreground">
+                        {dtFmt.format(new Date(r.at))}
+                      </td>
+                      <td class="whitespace-nowrap px-3 py-2.5 text-xs">{r.user_email}</td>
+                      <td class="px-3 py-2.5">
+                        <span class={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${ACTION_TONE[r.action as string] ?? 'bg-gray-100 text-gray-700'}`}>
+                          {r.action}
+                        </span>
+                        <span class="mt-0.5 block text-[11px] text-muted-foreground">
+                          {r.entity}
+                          {r.entity_id ? ` #${r.entity_id}` : ''}
+                        </span>
+                      </td>
+                      <td class="px-3 py-2.5">
+                        {r.summary}
+                        {diffKeys.length > 0 && (
+                          <details class="mt-1">
+                            <summary class="cursor-pointer text-xs text-muted-foreground">
+                              diff ({diffKeys.length})
+                            </summary>
+                            <dl class="mt-1 space-y-0.5 rounded-lg bg-muted/60 p-2 text-xs">
+                              {diffKeys.map((k) => (
+                                <div class="flex gap-2">
+                                  <dt class="min-w-28 shrink-0 font-mono text-muted-foreground">{k}</dt>
+                                  <dd class="flex flex-wrap items-center gap-1">
+                                    <span class="rounded bg-red-50 px-1 text-red-700 line-through">{fmtVal(diff[k].before)}</span>
+                                    <span aria-hidden="true">→</span>
+                                    <span class="rounded bg-emerald-50 px-1 text-emerald-700">{fmtVal(diff[k].after)}</span>
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </details>
+                        )}
+                      </td>
+                      <td class="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
+                        {r.ip ?? '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )
+        }
+      </div>
+
+      {
+        pages > 1 && (
+          <div class="flex items-center justify-between text-sm">
+            {page > 1 ? (
+              <a class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent" href={`/admin/auditoria${qs({ page: String(page - 1) })}`}>
+                ‹ Anterior
+              </a>
+            ) : (
+              <span />
+            )}
+            <span class="text-muted-foreground">Página {page} / {pages}</span>
+            {page < pages ? (
+              <a class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent" href={`/admin/auditoria${qs({ page: String(page + 1) })}`}>
+                Siguiente ›
+              </a>
+            ) : (
+              <span />
+            )}
+          </div>
+        )
+      }
+    </main>
+  </body>
+</html>

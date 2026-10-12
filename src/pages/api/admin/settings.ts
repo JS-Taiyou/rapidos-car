@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
 import { invalidateTenantCache, getTenant } from '../../../lib/tenant';
+import { logAudit } from '../../../lib/audit';
 
 export const prerender = false;
 
@@ -86,6 +87,12 @@ export async function PATCH(context: APIContext): Promise<Response> {
   }
 
   invalidateTenantCache();
+  await logAudit(sql, admin, {
+    action: 'settings',
+    entity: 'setting',
+    summary: `Ajustes del tenant actualizados (${Object.keys(d).join(', ')})`,
+    diff: Object.fromEntries(Object.entries(d).map(([k, v]) => [k, { after: v ?? null }])),
+  }, context);
   return json({ tenant: await getTenant() });
 }
 

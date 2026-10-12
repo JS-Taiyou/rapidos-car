@@ -20,6 +20,7 @@ import {
 import { manualBookingSchema, generateBookingCode } from '../../../lib/validation';
 import type { ManualBookingInput } from '../../../lib/validation';
 import { linkBookingToCustomer } from '../../../lib/customers';
+import { logAudit } from '../../../lib/audit';
 
 export const prerender = false;
 
@@ -186,6 +187,12 @@ export async function POST(context: APIContext): Promise<Response> {
         ) agg ON true
         WHERE b.id = ${Number(rows[0].booking_id)}
       `;
+      await logAudit(sql, admin, {
+        action: 'create',
+        entity: 'booking',
+        entityId: Number(rows[0].booking_id),
+        summary: `Bloqueo ${created[0].code} creado (${data.start.toISOString().slice(0, 10)} → ${data.end.toISOString().slice(0, 10)})`,
+      }, context);
       return json({ booking: created[0] }, 201);
     }
 
@@ -331,6 +338,12 @@ export async function POST(context: APIContext): Promise<Response> {
     } catch (crmErr) {
       console.error('CRM: no se pudo vincular el cliente:', crmErr);
     }
+    await logAudit(sql, admin, {
+      action: 'create',
+      entity: 'booking',
+      entityId: result.bookingId,
+      summary: `Renta ${created[0].code} capturada manualmente — ${data.customer?.name ?? ''} (${(created[0].total_cents / 100).toFixed(2)} MXN)`,
+    }, context);
     // SIN whatsappUrl: la captura manual no dispara mensaje automático (el
     // staff ya tiene al cliente enfrente o al teléfono).
     return json({ booking: created[0] }, 201);

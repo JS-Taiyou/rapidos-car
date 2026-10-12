@@ -5,6 +5,7 @@ import type { APIContext } from 'astro';
 import { z } from 'zod';
 import { sql } from '../../../../lib/db';
 import { requireAdminApi } from '../../../../lib/auth';
+import { logAudit } from '../../../../lib/audit';
 import { invalidatePickupPointsCache } from '../../../../lib/pickup-points';
 
 export const prerender = false;
@@ -59,6 +60,13 @@ export async function PATCH(context: APIContext): Promise<Response> {
   const rows = await sql`UPDATE pickup_points SET ${sql(columns)} WHERE id = ${id} RETURNING *`;
   if (rows.length === 0) return json({ error: 'not_found' }, 404);
   invalidatePickupPointsCache();
+  await logAudit(sql, admin, {
+    action: 'update',
+    entity: 'point',
+    entityId: id,
+    summary: `Punto "${rows[0].name}" actualizado (${Object.keys(columns).join(', ')})`,
+    diff: Object.fromEntries(Object.entries(columns).map(([k, v]) => [k, { after: v }])),
+  }, context);
   return json({ point: rows[0] });
 }
 
@@ -72,6 +80,12 @@ export async function DELETE(context: APIContext): Promise<Response> {
   const rows = await sql`DELETE FROM pickup_points WHERE id = ${id} RETURNING key`;
   if (rows.length === 0) return json({ error: 'not_found' }, 404);
   invalidatePickupPointsCache();
+  await logAudit(sql, admin, {
+    action: 'delete',
+    entity: 'point',
+    entityId: id,
+    summary: `Punto de entrega "${rows[0].key}" eliminado`,
+  }, context);
   return json({ ok: true });
 }
 

@@ -6,6 +6,7 @@ import type { APIContext } from 'astro';
 import { z } from 'zod';
 import { sql } from '../../../../lib/db';
 import { requireAdminApi } from '../../../../lib/auth';
+import { logAudit } from '../../../../lib/audit';
 import { mergeCustomers } from '../../../../lib/customers';
 
 export const prerender = false;
@@ -106,6 +107,12 @@ export async function PATCH(context: APIContext): Promise<Response> {
         await sql`UPDATE customers SET no_show = ${data.noShow}, updated_at = now() WHERE id = ${merged.id}`;
       }
       const survivor = await loadCustomer(Number(merged.id));
+      await logAudit(sql, admin, {
+        action: 'merge',
+        entity: 'customer',
+        entityId: Number(merged.id),
+        summary: `Expedientes fusionados por CURP: #${id} (${customer.full_name}) → #${merged.id} (${clash[0].full_name})`,
+      }, context);
       return json({
         customer: survivor,
         mergedInto: { id: Number(clash[0].id), fullName: clash[0].full_name as string },
@@ -125,6 +132,13 @@ export async function PATCH(context: APIContext): Promise<Response> {
   if (Object.keys(columns).length > 0) {
     columns.updated_at = sql`now()`;
     await sql`UPDATE customers SET ${sql(columns)} WHERE id = ${id}`;
+    await logAudit(sql, admin, {
+      action: 'update',
+      entity: 'customer',
+      entityId: id,
+      summary: `Expediente de ${data.fullName ?? customer.full_name} actualizado (${Object.keys(columns).filter(c => c !== 'updated_at').join(', ')})`,
+      diff: Object.fromEntries(Object.entries(columns).map(([k, v]) => [k, { before: (customer as Record<string, unknown>)[k] ?? null, after: v }])),
+    }, context);
   }
 
   const updated = await loadCustomer(id);
