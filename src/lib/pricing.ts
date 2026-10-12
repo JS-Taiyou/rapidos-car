@@ -5,6 +5,7 @@
 import type postgres from 'postgres';
 import type { Sql } from './db';
 import type { ModelAvailability } from './availability';
+import { getPickupPoints } from './pickup-points';
 
 export interface Season {
   name: string;
@@ -22,7 +23,7 @@ export interface Extra {
 
 export interface Settings {
   ivaRate: number;
-  deliveryZones: Array<{ zone: string; feeCents: number }>;
+  pickupPoints: Array<{ key: string; feeCents: number | null }>;
   longRentalDiscounts: Array<{ minDays: number; pct: number }>;
   turnaroundBufferMinutes: number;
   whatsappStaffNumber: string;
@@ -74,6 +75,7 @@ export function computeQuote(
   pickupZone: string,
   selectedExtras: Array<{ id: number; qty: number }>,
   ctx: PricingContext,
+  returnZone: string = pickupZone,
 ): PriceBreakdown {
   // Días = bloques de 24 h con ceil (26 h = 2 días, estándar de renta).
   const ms = end.getTime() - start.getTime();
@@ -119,8 +121,13 @@ export function computeQuote(
       extra.per === 'day' ? extra.priceCents * sel.qty * daysCount : extra.priceCents * sel.qty;
   }
 
+  // Tarifa de servicio: entrega en pickupZone + recogida en returnZone
+  // cuando son puntos distintos (recoger el auto en otro punto también
+  // cuesta: es un traslado del staff). Mismo punto = una sola tarifa.
+  const feeOf = (key: string) =>
+    ctx.settings.pickupPoints.find((p) => p.key === key)?.feeCents ?? 0;
   const deliveryFeeCents =
-    ctx.settings.deliveryZones.find((z) => z.zone === pickupZone)?.feeCents ?? 0;
+    feeOf(pickupZone) + (returnZone !== pickupZone ? feeOf(returnZone) : 0);
 
   // IVA AL FINAL sobre la base completa (cuadra con facturación mexicana).
   const taxCents = Math.round((subtotalCents + extrasCents + deliveryFeeCents) * ctx.settings.ivaRate);
@@ -320,6 +327,8 @@ export async function loadPricingContext(sql: Sql): Promise<PricingContext> {
     settingsMap.long_rental_discounts ?? [],
   );
 
+  const points = (await getPickupPoints()).map((p) => ({ key: p.key, feeCents: p.feeCents }));
+
   return {
     seasons: (seasonRows as unknown as Array<{ name: string; period: string; multiplier: string | number }>).map(
       (r) => ({
@@ -338,7 +347,8 @@ export async function loadPricingContext(sql: Sql): Promise<PricingContext> {
     })),
     settings: {
       ivaRate: Number(settingsMap.iva_rate ?? 0),
-      deliveryZones: rawZones.map((z) => ({ zone: z.zone, feeCents: Number(z.fee_cents) })),
+      pickupPoints: points,
+
       longRentalDiscounts: rawDiscounts.map((d) => ({ minDays: Number(d.min_days), pct: Number(d.pct) })),
       turnaroundBufferMinutes: Number(settingsMap.turnaround_buffer_minutes ?? 0),
       whatsappStaffNumber: String(settingsMap.whatsapp_staff_number ?? ''),

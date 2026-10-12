@@ -93,7 +93,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     const start = new Date(booking.period_start);
     const end = new Date(booking.period_end);
     const ctx = await loadPricingContext(sql);
-    const base = computeQuote(model, start, end, booking.pickup_zone, [], ctx);
+    const base = computeQuote(model, start, end, booking.pickup_zone, [], ctx, booking.return_zone ?? booking.pickup_zone);
     const quote = applyPricingOverrides(base, model, start, end, reprice, ctx);
     const previous = (booking.pricing ?? {}) as Record<string, unknown>;
 
@@ -148,6 +148,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     const newStart = edit.start ?? new Date(booking.period_start);
     const newEnd = edit.end ?? new Date(booking.period_end);
     const newZone = edit.pickupZone ?? (booking.pickup_zone as string);
+  const newReturnZone = edit.returnZone ?? ((booking.return_zone as string | null) ?? newZone);
 
     const ctx = await loadPricingContext(sql);
     const buffer = ctx.settings.turnaroundBufferMinutes;
@@ -191,7 +192,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
       };
 
       const chosenExtras = edit.extras ?? [];
-      const quote = computeQuote(model, newStart, newEnd, newZone, chosenExtras, ctx);
+      const quote = computeQuote(model, newStart, newEnd, newZone, chosenExtras, ctx, newReturnZone);
       const snapshot = snapshotExtras(chosenExtras, ctx);
       const changes: string[] = [];
       if (targetSlug !== currentSlug) changes.push('modelo');
@@ -214,6 +215,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
         SET vehicle_id = ${unitId},
             period = tstzrange(${newStart}::timestamptz, ${newEnd}::timestamptz, '[)'),
             pickup_zone = ${newZone},
+            return_zone = ${newReturnZone},
             extras = ${sql.json(snapshot)}::jsonb,
             pricing = ${sql.json(pricingJson(pricing))}::jsonb,
             total_cents = ${pricing.totalCents},

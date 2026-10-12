@@ -41,7 +41,7 @@ import { es as esLocale, enUS } from 'date-fns/locale';
 
 interface Props {
   lang: Lang;
-  zones: Array<{ zone: string; feeCents: number }>;
+  zones: Array<{ zone: string; name?: string; feeCents: number }>;
 }
 
 type QuoteResult = {
@@ -63,6 +63,7 @@ interface BookingState {
   step: Step;
   range: { start: Date; end: Date } | null;
   pickupZone: string;
+  returnZone: string;
   quote: QuoteResult[] | null;
   extrasCatalog: Extra[];
   quoteToken: number;
@@ -76,7 +77,7 @@ interface BookingState {
 }
 
 type Action =
-  | { type: 'SET_RANGE'; start: Date; end: Date; zone: string }
+  | { type: 'SET_RANGE'; start: Date; end: Date; zone: string; returnZone?: string }
   | { type: 'QUOTE_LOADED'; quote: QuoteResult[]; extrasCatalog: Extra[] }
   | { type: 'QUOTE_FAILED'; message: string }
   | { type: 'SELECT_MODEL'; model: QuoteResult }
@@ -95,6 +96,7 @@ const initialState: BookingState = {
   step: 'range',
   range: null,
   pickupZone: '',
+  returnZone: '',
   quote: null,
   extrasCatalog: [],
   quoteToken: 0,
@@ -117,6 +119,7 @@ function bookingReducer(state: BookingState, action: Action): BookingState {
         step: 'range',
         range: { start: action.start, end: action.end },
         pickupZone: action.zone,
+        returnZone: action.returnZone ?? action.zone,
         quote: null,
         quoteToken: state.quoteToken + 1,
         selectedModel: null,
@@ -211,7 +214,9 @@ function RangeStep({ lang, zones, state }: { lang: Lang; zones: Props['zones']; 
   const [pickTime, setPickTime] = useState('12:00');
   const [returnTime, setReturnTime] = useState('12:00');
   const [zone, setZone] = useState(state.pickupZone);
+  const [returnZoneState, setReturnZoneState] = useState(state.returnZone || state.pickupZone);
   const [error, setError] = useState<string | null>(null);
+  const zoneLabel = (z: { zone: string; name?: string }) => z.name ?? t(`quote.zones.${z.zone}`);
 
   function submit() {
     if (!pickDate || !returnDate || !zone) {
@@ -237,7 +242,7 @@ function RangeStep({ lang, zones, state }: { lang: Lang; zones: Props['zones']; 
       return;
     }
     setError(null);
-    dispatch({ type: 'SET_RANGE', start, end, zone });
+    dispatch({ type: 'SET_RANGE', start, end, zone, returnZone: returnZoneState || zone });
   }
 
   return (
@@ -280,15 +285,31 @@ function RangeStep({ lang, zones, state }: { lang: Lang; zones: Props['zones']; 
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="bf-zone">{t('booking.range.zone')}</Label>
-            <Select value={zone} onValueChange={setZone}>
+            <Select value={zone} onValueChange={(v) => { setZone(v); if (!returnZoneState) setReturnZoneState(v); }}>
               <SelectTrigger id="bf-zone">
                 <SelectValue placeholder={t('booking.range.zone')} />
               </SelectTrigger>
               <SelectContent>
                 {zones.map((z) => (
                   <SelectItem key={z.zone} value={z.zone}>
-                    {t(`quote.zones.${z.zone}`)}
+                    {zoneLabel(z)}
                     {z.feeCents > 0 ? ` (+${money(z.feeCents)})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="bf-rzone">{lang === 'es' ? 'Punto de devolución' : 'Return point'}</Label>
+            <Select value={returnZoneState} onValueChange={setReturnZoneState}>
+              <SelectTrigger id="bf-rzone">
+                <SelectValue placeholder={lang === 'es' ? 'Mismo que entrega' : 'Same as pickup'} />
+              </SelectTrigger>
+              <SelectContent>
+                {zones.map((z) => (
+                  <SelectItem key={z.zone} value={z.zone}>
+                    {zoneLabel(z)}
+                    {z.feeCents > 0 && returnZoneState !== zone && z.zone !== zone ? ` (+${money(z.feeCents)})` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -694,12 +715,13 @@ export default function BookingFlow({ lang, zones }: Props) {
     const startRaw = params.get('start');
     const endRaw = params.get('end');
     const zone = params.get('zone');
+    const returnZoneParam = params.get('returnZone');
     if (!startRaw || !endRaw || !zone) return;
     const start = new Date(startRaw);
     const end = new Date(endRaw);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
     if (end <= start || start.getTime() < Date.now() + 3 * 60 * 60 * 1000) return;
-    dispatch({ type: 'SET_RANGE', start, end, zone });
+    dispatch({ type: 'SET_RANGE', start, end, zone, returnZone: returnZoneParam ?? zone });
   }, []);
 
   // Efecto único de cotización: observa [range, pickupZone, token] con
@@ -717,6 +739,7 @@ export default function BookingFlow({ lang, zones }: Props) {
             start: start.toISOString(),
             end: end.toISOString(),
             pickupZone: state.pickupZone,
+            returnZone: state.returnZone || state.pickupZone,
           }),
           signal: ac.signal,
         });
@@ -749,6 +772,7 @@ export default function BookingFlow({ lang, zones }: Props) {
           start: state.range.start.toISOString(),
           end: state.range.end.toISOString(),
           pickupZone: state.pickupZone,
+          returnZone: state.returnZone || state.pickupZone,
           extras: state.selectedExtras,
           customer: state.customer,
           depositType,

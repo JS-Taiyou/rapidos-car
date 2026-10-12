@@ -34,6 +34,7 @@ export const quoteSchema = z
     start: z.coerce.date(),
     end: z.coerce.date(),
     pickupZone: z.string().min(1, 'Elige una zona de entrega'),
+    returnZone: z.string().min(1).optional(),
     // Opcional: el wizard puede preseleccionar extras al cotizar.
     extras: z
       .array(z.object({ id: z.number().int(), qty: z.number().int().min(1) }))
@@ -50,6 +51,7 @@ export const bookingInputSchema = z
     start: z.coerce.date(),
     end: z.coerce.date(),
     pickupZone: z.string().min(1, 'Elige una zona de entrega'),
+    returnZone: z.string().min(1).optional(), // default: mismo punto de entrega
     // default([]): una renta sin extras no debe obligar a mandar el arreglo.
     extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).default([]),
     customer: customerSchema,
@@ -101,6 +103,7 @@ export const bookingEditSchema = z
     start: z.coerce.date().optional(),
     end: z.coerce.date().optional(),
     pickupZone: z.string().min(1).optional(),
+    returnZone: z.string().min(1).optional(),
     extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, { message: 'Nada que editar' });
@@ -153,6 +156,7 @@ export const manualBookingSchema = z
     start: z.coerce.date(),
     end: z.coerce.date(),
     pickupZone: z.string().min(1).default('office'),
+    returnZone: z.string().min(1).optional(),
     extras: z.array(z.object({ id: z.number().int(), qty: z.number().int().min(1) })).default([]),
     customer: customerSchema.optional(),
     depositType: z.enum(['deposit', 'on_pickup']).default('on_pickup'),

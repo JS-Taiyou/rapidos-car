@@ -8,7 +8,7 @@ import QuoteWidget from '../components/react/QuoteWidget.tsx';
 import CarCard from '../components/CarCard.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { buildWhatsAppUrl } from '../lib/whatsapp';
-import { DELIVERY_ZONES } from '../lib/zones';
+import { getPickupPoints } from '../lib/pickup-points';
 import { getTenant } from '../lib/tenant';
 
 
@@ -61,7 +61,7 @@ const whatsappUrl = tenant.publicWhatsapp ? buildWhatsAppUrl(t('nav.whatsapp'), 
       </p>
       <div class="mt-8 max-w-3xl">
         <!-- El widget ES el embudo: client:load, no client:idle. -->
-        <QuoteWidget client:load lang="es" zones={DELIVERY_ZONES} />
+        <QuoteWidget client:load lang="es" zones={(await getPickupPoints()).map((p) => ({ zone: p.key, name: p.name, feeCents: p.feeCents ?? 0 }))} />
       </div>
     </div>
   </section>

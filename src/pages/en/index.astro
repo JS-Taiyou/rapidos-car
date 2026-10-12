@@ -7,7 +7,7 @@ import CarCard from '../../components/CarCard.astro';
 import { useTranslations, getLocalizedPath } from '../../i18n/utils';
 import { buildWhatsAppUrl } from '../../lib/whatsapp';
 import { getTenant } from '../../lib/tenant';
-import { DELIVERY_ZONES } from '../../lib/zones';
+import { getPickupPoints } from '../../lib/pickup-points';
 
 
 export const prerender = false;
@@ -57,7 +57,7 @@ const whatsappUrl = tenant.publicWhatsapp ? buildWhatsAppUrl(t('nav.whatsapp'), 
         {t('home.hero.subtitle')}
       </p>
       <div class="mt-8 max-w-3xl">
-        <QuoteWidget client:load lang="en" zones={DELIVERY_ZONES} />
+        <QuoteWidget client:load lang="en" zones={(await getPickupPoints()).map((p) => ({ zone: p.key, name: p.name, feeCents: p.feeCents ?? 0 }))} />
       </div>
     </div>
   </section>

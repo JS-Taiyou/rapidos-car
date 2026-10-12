@@ -7,7 +7,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import BookingFlow from '../components/react/booking/BookingFlow';
 import { useTranslations } from '../i18n/utils';
 import { buildWhatsAppUrl } from '../lib/whatsapp';
-import { DELIVERY_ZONES } from '../lib/zones';
+import { getPickupPoints } from '../lib/pickup-points';
 
 
 export const prerender = false;
@@ -22,7 +22,7 @@ const whatsappFallback = buildWhatsAppUrl(t('booking.noscriptMessage'));
 
     <!-- min-height: sin él, el contenido salta al hidratar la isla (CLS). -->
     <div class="mt-8 min-h-[32rem]">
-      <BookingFlow client:load lang="es" zones={DELIVERY_ZONES} />
+      <BookingFlow client:load lang="es" zones={(await getPickupPoints()).map((p) => ({ zone: p.key, name: p.name, feeCents: p.feeCents ?? 0 }))} />
     </div>
 
     <noscript>

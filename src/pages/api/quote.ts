@@ -7,6 +7,7 @@ import { sql } from '../../lib/db';
 import { findAvailableModels } from '../../lib/availability';
 import { computeQuote, loadPricingContext, type QuoteResult } from '../../lib/pricing';
 import { quoteSchema } from '../../lib/validation';
+import { getPickupPoints } from '../../lib/pickup-points';
 
 export const prerender = false;
 
@@ -29,7 +30,7 @@ export async function POST({ request }: APIContext): Promise<Response> {
   if (!parsed.success) {
     return json({ error: 'validation', issues: parsed.error.issues }, 400);
   }
-  const { start, end, pickupZone } = parsed.data;
+  const { start, end, pickupZone, returnZone } = parsed.data;
   const selectedExtras = parsed.data.extras ?? [];
 
   // Las 3 queries de contexto van en UN Promise.all: son independientes.
@@ -49,7 +50,7 @@ export async function POST({ request }: APIContext): Promise<Response> {
       dailyRateCents: m.dailyRateCents,
       photos: m.photos,
       unitsAvailable: m.unitsAvailable,
-      price: computeQuote(m, start, end, pickupZone, selectedExtras, ctx),
+      price: computeQuote(m, start, end, pickupZone, selectedExtras, ctx, returnZone ?? pickupZone),
     }))
     // Orden explícito por TOTAL: incluye extras y entrega y puede reordenar
     // respecto a la tarifa base.
@@ -60,7 +61,7 @@ export async function POST({ request }: APIContext): Promise<Response> {
   return json({
     results,
     extras: ctx.extrasCatalog,
-    zones: ctx.settings.deliveryZones,
+    zones: (await getPickupPoints()).map((p) => ({ zone: p.key, name: p.name, feeCents: p.feeCents ?? 0, lat: p.lat, lng: p.lng })),
   });
 }
 

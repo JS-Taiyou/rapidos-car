@@ -5,18 +5,20 @@
 // ui.ts/zonas + redeploy (modo SSR documentado en la guía si cambia).
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
+import { getPickupPoints } from '../lib/pickup-points';
 
 
 export const prerender = false;
 const t = useTranslations('es');
 
 const feeFmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
-const zones = [
-  { key: 'airport_mid', feeCents: 0 },
-  { key: 'centro', feeCents: 15000 },
-  { key: 'norte', feeCents: 20000 },
-  { key: 'hotel_zone', feeCents: 25000 },
-];
+const zones = (await getPickupPoints()).map((p) => ({
+  key: p.key,
+  name: p.name,
+  feeCents: p.feeCents ?? 0,
+  lat: p.lat,
+  lng: p.lng,
+}));
 ---
 
 <BaseLayout lang="es" title={`${t('locations.title')} — Rapidoz Rental`} description={t('locations.subtitle')} alternateUrl="/en/locations">
@@ -55,8 +57,10 @@ const zones = [
             zones.map((zone) => (
               <li class="flex items-center justify-between gap-3 p-3">
                 <div>
-                  <p class="font-medium">{t(`locations.zones.${zone.key}.name`)}</p>
-                  <p class="text-xs text-muted-foreground">{t(`locations.zones.${zone.key}.desc`)}</p>
+                  <p class="font-medium">{zone.name}</p>
+                  <p class="text-xs text-muted-foreground">
+                    {zone.lat !== null ? `📍 ${zone.lat.toFixed(4)}, ${zone.lng!.toFixed(4)}` : t(`locations.zones.${zone.key}.desc`)}
+                  </p>
                 </div>
                 <span class="shrink-0 font-semibold">
                   {zone.feeCents === 0 ? 'Gratis' : `+${feeFmt.format(zone.feeCents / 100)}`}

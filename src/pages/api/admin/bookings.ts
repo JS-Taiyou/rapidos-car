@@ -192,14 +192,15 @@ export async function POST(context: APIContext): Promise<Response> {
           const rows = await sqlTx`
             INSERT INTO bookings
               (code, kind, vehicle_id, customer_name, customer_email,
-               customer_phone, flight_number, period, pickup_zone, extras,
-               total_cents, deposit_type, status, notes, pricing, requested)
+               customer_phone, flight_number, period, pickup_zone, return_zone,
+               extras, total_cents, deposit_type, status, notes, pricing, requested)
             VALUES
               (${code}, 'rental', ${unitId}, ${data.customer!.name},
                ${data.customer!.email ?? null}, ${data.customer!.phone ?? null},
                ${data.customer!.flightNumber ?? null},
                tstzrange(${data.start}::timestamptz, ${data.end}::timestamptz, '[)'),
-               ${data.pickupZone}, ${sql.json(snapshotExtras(data.extras, ctx))}::jsonb,
+               ${data.pickupZone}, ${data.returnZone ?? data.pickupZone},
+               ${sql.json(snapshotExtras(data.extras, ctx))}::jsonb,
                ${pricing.totalCents}, ${data.depositType}, 'confirmed',
                ${data.notes ?? null}, ${sql.json(pricingJson(pricing))}::jsonb,
                ${sql.json(requested)}::jsonb)

@@ -68,7 +68,7 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!parsed.success) {
     return json({ error: 'validation', issues: parsed.error.issues }, 400);
   }
-  const { modelSlug, start, end, pickupZone, extras, customer, depositType, lang } = parsed.data;
+  const { modelSlug, start, end, pickupZone, returnZone, extras, customer, depositType, lang } = parsed.data;
 
   // Carga el ctx de precios ANTES de la transacción (lo mismo que
   // /api/quote). Validación de extras contra el catálogo activo.
@@ -94,7 +94,7 @@ export async function POST(context: APIContext): Promise<Response> {
       if (!model) return { unavailable: true as const };
 
       // Recalculado en servidor: puro, no alarga la transacción.
-      const quote: PriceBreakdown = computeQuote(model, start, end, pickupZone, extras, ctx);
+      const quote: PriceBreakdown = computeQuote(model, start, end, pickupZone, extras, ctx, returnZone ?? pickupZone);
 
       // Desglose completo con procedencia: qué se cotizó, con qué reglas y
       // quién lo calculó (engine = el motor, sin intervención humana).
@@ -115,6 +115,7 @@ export async function POST(context: APIContext): Promise<Response> {
         start: start.toISOString(),
         end: end.toISOString(),
         pickupZone,
+        returnZone: returnZone ?? pickupZone,
         extras: snapshot.map((e) => ({ name: e.name, price_cents: e.price_cents, per: e.per, qty: e.qty })),
         customer: {
           name: customer.name,
@@ -135,13 +136,14 @@ export async function POST(context: APIContext): Promise<Response> {
           const rows = await sqlTx`
             INSERT INTO bookings
               (code, kind, vehicle_id, customer_name, customer_email,
-               customer_phone, flight_number, period, pickup_zone, extras,
-               total_cents, deposit_type, status, pricing, requested)
+               customer_phone, flight_number, period, pickup_zone, return_zone,
+               extras, total_cents, deposit_type, status, pricing, requested)
             VALUES
               (${code}, 'rental', ${unitId}, ${customer.name}, ${customer.email},
                ${customer.phone}, ${customer.flightNumber ?? null},
                tstzrange(${start}::timestamptz, ${end}::timestamptz, '[)'),
-               ${pickupZone}, ${sql.json(snapshot)}::jsonb, ${pricing.totalCents},
+               ${pickupZone}, ${returnZone ?? pickupZone},
+               ${sql.json(snapshot)}::jsonb, ${pricing.totalCents},
                ${depositType}, 'confirmed', ${sql.json(pricingJson(pricing))}::jsonb,
                ${sql.json(requested)}::jsonb)
             RETURNING id, code
@@ -172,7 +174,7 @@ export async function POST(context: APIContext): Promise<Response> {
                       WHERE m.slug = ${modelSlug} ORDER BY v.id LIMIT 1`
           : [];
         if (model && refUnit.length > 0) {
-          const quote = computeQuote(model, start, end, pickupZone, extras, ctx);
+          const quote = computeQuote(model, start, end, pickupZone, extras, ctx, returnZone ?? pickupZone);
           const lead = {
             channel: 'web' as const,
             model: { slug: model.slug, name: model.name },
@@ -200,14 +202,15 @@ export async function POST(context: APIContext): Promise<Response> {
           const rows2 = await sql`
             INSERT INTO bookings
               (code, kind, vehicle_id, customer_name, customer_email,
-               customer_phone, flight_number, period, pickup_zone, extras,
-               total_cents, deposit_type, status, pricing, requested, notes)
+               customer_phone, flight_number, period, pickup_zone, return_zone,
+               extras, total_cents, deposit_type, status, pricing, requested, notes)
             VALUES
               (${generateBookingCode()}, 'rental', ${Number(refUnit[0].id)},
                ${customer.name}, ${customer.email}, ${customer.phone},
                ${customer.flightNumber ?? null},
                tstzrange(${start}::timestamptz, ${end}::timestamptz, '[)'),
-               ${pickupZone}, ${sql.json(snapshot)}::jsonb, ${quote.totalCents},
+               ${pickupZone}, ${returnZone ?? pickupZone},
+               ${sql.json(snapshot)}::jsonb, ${quote.totalCents},
                ${depositType}, 'quoted', ${sql.json(pricingJson(pricing))}::jsonb,
                ${sql.json(lead)}::jsonb, 'Lead web: sin disponibilidad al intentar reservar')
             RETURNING id, code

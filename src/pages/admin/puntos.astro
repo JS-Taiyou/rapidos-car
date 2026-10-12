@@ -1,0 +1,36 @@
+---
+// Admin — Puntos de entrega/recogida (/admin/puntos) — shell que monta la
+// isla PointsManager (lista + editor con mapa Leaflet).
+import { requireAdmin } from '../../lib/auth';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import PointsManager from '../../components/react/admin/PointsManager.tsx';
+import '../../styles/global.css';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Puntos — Rapidoz Admin</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav />
+    <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
+      <h1 class="text-2xl font-bold tracking-tight">Puntos de entrega y recogida</h1>
+      <PointsManager client:load />
+    </main>
+  </body>
+</html>

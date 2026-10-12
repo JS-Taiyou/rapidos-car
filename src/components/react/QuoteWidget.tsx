@@ -16,7 +16,7 @@ import { useTranslations, type Lang } from '../../i18n/utils';
 
 interface Props {
   lang: Lang;
-  zones: Array<{ zone: string; feeCents: number }>;
+  zones: Array<{ zone: string; name?: string; feeCents: number }>;
 }
 
 // datetime-local exige 'YYYY-MM-DDTHH:mm' exacto; toISOString() NO sirve
@@ -31,9 +31,18 @@ const feeFmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MX
 export default function QuoteWidget({ lang, zones }: Props) {
   const t = useTranslations(lang);
   const [pickupZone, setPickupZone] = useState('');
+  const [returnZone, setReturnZone] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const zoneLabel = (z: { zone: string; name?: string }) =>
+    z.name ?? t(`quote.zones.${z.zone}`);
+  const zoneTouched = (z: { zone: string; feeCents: number }) => {
+    if (pickupZone && z.zone === pickupZone && returnZone && z.zone !== returnZone) return true;
+    if (returnZone && z.zone === returnZone && pickupZone && z.zone !== pickupZone) return true;
+    return false;
+  };
 
   // Bloquea fechas pasadas antes de cualquier JS (atributo min de ambos
   // inputs). Lead time del negocio: 3 h.
