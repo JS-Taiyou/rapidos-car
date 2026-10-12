@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '../../ui/dialog';
 import { Toaster, toast } from '../../ui/sonner';
+import { enqueue, flushQueue, listQueue, type QueuedHandover } from '../../../lib/offline-queue';
 
 interface AgendaItem {
   segment_id: number;
@@ -71,6 +72,9 @@ export default function HandoverBoard() {
 
   // Diálogo activo: {item, kind}
   const [target, setTarget] = useState<{ item: AgendaItem; kind: 'out' | 'in' } | null>(null);
+  // Cola offline: capturas esperando red (badge + sincronización).
+  const [queued, setQueued] = useState<QueuedHandover[]>([]);
+  const [syncing, setSyncing] = useState(false);
 
   const loadAgenda = useCallback(async (d: string) => {
     setLoading(true);
@@ -91,6 +95,31 @@ export default function HandoverBoard() {
   useEffect(() => {
     loadAgenda(date).catch(() => undefined);
   }, [date, loadAgenda]);
+
+  async function syncQueue(manual = false): Promise<void> {
+    setSyncing(true);
+    try {
+      const result = await flushQueue();
+      if (result.synced > 0) toast.success(`${result.synced} captura(s) subida(s)`);
+      for (const c of result.conflicts) toast.warning(`${c.code}: ${c.message} (queda para revisión)`);
+      if (result.stillOffline && manual) toast.error('Sigue sin haber conexión');
+      setQueued(await listQueue());
+      if (result.synced > 0) loadAgenda(date).catch(() => undefined);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  useEffect(() => {
+    listQueue().then(setQueued).catch(() => undefined);
+    const onOnline = () => {
+      toast.info('Conexión recuperada — subiendo capturas…');
+      syncQueue().catch(() => undefined);
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Checklists configurados en Ajustes (defaults del servidor si no hay).
   useEffect(() => {
@@ -138,6 +167,18 @@ export default function HandoverBoard() {
         <p className="ml-auto text-sm text-muted-foreground">{dateLong.format(new Date(`${date}T12:00:00`))}</p>
       </div>
 
+      {queued.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>
+            📡 <strong>{queued.length}</strong> captura(s) sin subir
+            {queued.some((q) => q.conflict) && ' · alguna requiere revisión'}
+          </p>
+          <Button variant="outline" size="sm" disabled={syncing} onClick={() => syncQueue(true)}>
+            {syncing ? 'Sincronizando…' : 'Sincronizar ahora'}
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border bg-background p-4">
           <p className="text-sm text-muted-foreground">Entregas pendientes</p>
@@ -179,6 +220,7 @@ export default function HandoverBoard() {
           onDone={() => {
             setTarget(null);
             loadAgenda(date).catch(() => undefined);
+            listQueue().then(setQueued).catch(() => undefined);
           }}
         />
       )}
@@ -284,7 +326,9 @@ function HandoverDialog({
   const [odometer, setOdometer] = useState('');
   const [fuel, setFuel] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
-  const [photos, setPhotos] = useState<Array<{ path: string; name: string }>>([]);
+  // path = ya subida al servidor · file = blob local (offline, preview
+  // objectURL) que viajará en la cola o se subirá al confirmar.
+  const [photos, setPhotos] = useState<Array<{ path?: string; file?: File; url: string }>>([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -296,6 +340,15 @@ function HandoverDialog({
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // permitir re-elegir el mismo archivo
     if (files.length === 0) return;
+
+    // Sin red: los blobs se quedan locales (preview inmediata); subirán al
+    // confirmar (si hay red) o viajarán en la cola offline.
+    if (!navigator.onLine) {
+      setPhotos((prev) => [...prev, ...files.map((f) => ({ file: f, url: URL.createObjectURL(f) }))]);
+      toast.info('Sin conexión: la foto se guardó en la tablet');
+      return;
+    }
+
     setUploading(true);
     try {
       const form = new FormData();
@@ -314,10 +367,33 @@ function HandoverDialog({
         return;
       }
       const data = (await res.json()) as { paths: string[] };
-      setPhotos((prev) => [...prev, ...data.paths.map((p, i) => ({ path: p, name: files[i]?.name ?? `foto ${prev.length + i + 1}` }))]);
+      setPhotos((prev) => [...prev, ...data.paths.map((p, i) => ({ path: p, url: p }))]);
+    } catch {
+      // la red cayó a media subida: blobs locales como fallback
+      setPhotos((prev) => [...prev, ...files.map((f) => ({ file: f, url: URL.createObjectURL(f) }))]);
+      toast.info('Sin conexión: la foto se guardó en la tablet');
     } finally {
       setUploading(false);
     }
+  }
+
+  async function uploadPendingFiles(): Promise<string[]> {
+    // Sube las fotos que sólo existen como blob local (red disponible).
+    const pending = photos.filter((p) => p.file);
+    if (pending.length === 0) return [];
+    const form = new FormData();
+    form.set('dest', 'handover');
+    form.set('code', item.code);
+    form.set('seg', String(item.idx));
+    for (const p of pending) form.append('photos', p.file!);
+    const res = await fetch('/api/admin/vehicles/photos', { method: 'POST', body: form });
+    if (res.status === 401) {
+      window.location.href = '/admin/login';
+      throw new Error('unauthorized');
+    }
+    if (!res.ok) throw new Error('upload');
+    const data = (await res.json()) as { paths: string[] };
+    return data.paths;
   }
 
   async function submit(e: React.FormEvent) {
@@ -325,17 +401,37 @@ function HandoverDialog({
     if (!canSave) return;
     setSaving(true);
     try {
+      const payload = {
+        kind,
+        odometer: Number(odometer),
+        fuel: fuel!,
+        checklist: checks,
+        ...(notes ? { notes } : {}),
+      };
+
+      // SIN RED: el handover completo (payload + blobs) viaja a la cola de
+      // IndexedDB; subirá solo al reconectar.
+      if (!navigator.onLine) {
+        await enqueue({
+          id: `${item.segment_id}-${Date.now().toString(36)}`,
+          segmentId: item.segment_id,
+          code: item.code,
+          segIdx: item.idx,
+          kind,
+          payload,
+          photos: photos.filter((p) => p.file).map((p, i) => ({ name: p.file!.name || `foto-${i + 1}.jpg`, blob: p.file! })),
+          queuedAt: new Date().toISOString(),
+        });
+        toast.info(`${item.code}: guardado sin conexión — se subirá al reconectar`);
+        onDone();
+        return;
+      }
+
+      const uploaded = await uploadPendingFiles();
       const res = await fetch(`/api/admin/segments/${item.segment_id}/handover`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind,
-          odometer: Number(odometer),
-          fuel,
-          checklist: checks,
-          notes: notes || undefined,
-          photos: photos.map((p) => p.path),
-        }),
+        body: JSON.stringify({ ...payload, photos: [...photos.filter((p) => p.path).map((p) => p.path!), ...uploaded] }),
       });
       if (res.status === 401) {
         window.location.href = '/admin/login';
@@ -348,6 +444,31 @@ function HandoverDialog({
       }
       const data = (await res.json().catch(() => ({}))) as { error?: string; hint?: string };
       toast.error(data.hint ?? 'No se pudo registrar');
+    } catch {
+      // la red cayó a media operación: a la cola (los blobs siguen locales)
+      toast.info('Se perdió la conexión: intentando guardar localmente…');
+      try {
+        await enqueue({
+          id: `${item.segment_id}-${Date.now().toString(36)}`,
+          segmentId: item.segment_id,
+          code: item.code,
+          segIdx: item.idx,
+          kind,
+          payload: {
+            kind,
+            odometer: Number(odometer),
+            fuel: fuel ?? 0,
+            checklist: checks,
+            ...(notes ? { notes } : {}),
+          },
+          photos: photos.filter((p) => p.file).map((p, i) => ({ name: p.file!.name || `foto-${i + 1}.jpg`, blob: p.file! })),
+          queuedAt: new Date().toISOString(),
+        });
+        toast.info(`${item.code}: guardado sin conexión — se subirá al reconectar`);
+        onDone();
+      } catch {
+        toast.error('No se pudo registrar (ni localmente)');
+      }
     } finally {
       setSaving(false);
     }
@@ -449,13 +570,18 @@ function HandoverDialog({
             {photos.length > 0 && (
               <div className="grid grid-cols-4 gap-2">
                 {photos.map((p, i) => (
-                  <div key={p.path} className="group relative">
-                    <img src={p.path} alt={`Evidencia ${i + 1}`} className="h-20 w-full rounded-md object-cover" />
+                  <div key={p.url} className="group relative">
+                    <img src={p.url} alt={`Evidencia ${i + 1}`} className="h-20 w-full rounded-md object-cover" />
+                    {p.file && (
+                      <span className="absolute bottom-1 left-1 rounded bg-amber-500/90 px-1 text-[9px] font-bold text-white">
+                        LOCAL
+                      </span>
+                    )}
                     <button
                       type="button"
-                      aria-label={`Quitar ${p.name}`}
+                      aria-label={`Quitar evidencia ${i + 1}`}
                       className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 text-xs text-white"
-                      onClick={() => setPhotos(photos.filter((x) => x.path !== p.path))}
+                      onClick={() => setPhotos(photos.filter((x) => x.url !== p.url))}
                     >
                       ✕
                     </button>

@@ -17,9 +17,16 @@ if (admin instanceof Response) return admin;
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Entregas — Rapidoz Admin</title>
+    <!-- PWA del staff (Fase 5): instalable con icono/nombre del tenant; la
+         agenda funciona offline y las capturas sin red se suben solas. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0e7490" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Entregas" />
+    <link rel="apple-touch-icon" href="/admin/app-icon/192.png" />
   </head>
   <body class="min-h-screen bg-muted/30">
     <AdminNav />
@@ -31,5 +38,29 @@ if (admin instanceof Response) return admin;
       <!-- client:load: ES la herramienta del patio; hidrata de inmediato. -->
       <HandoverBoard client:load />
     </main>
+    <script>
+      // Registrar el service worker (idempotente) + botón de instalación.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+      }
+      // A2HS: el prompt nativo se gatilla desde el botón (requiere gesto).
+      let installPrompt: Event & { prompt?: () => Promise<void> } | null = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        installPrompt = e as typeof installPrompt;
+        document.getElementById('pwa-install')?.classList.remove('hidden');
+      });
+      document.getElementById('pwa-install')?.addEventListener('click', async () => {
+        await installPrompt?.prompt?.();
+        document.getElementById('pwa-install')?.classList.add('hidden');
+      });
+    </script>
+    <!-- Botón discreto de instalación (aparece cuando el navegador lo permite). -->
+    <button
+      id="pwa-install"
+      class="fixed bottom-4 left-4 z-40 hidden rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-lg"
+    >
+      📲 Instalar app
+    </button>
   </body>
 </html>

@@ -1,0 +1,39 @@
+---
+// Admin — Offline (/admin/offline) — fallback del service worker cuando no
+// hay red y la página pedida nunca se ha visitado (ROADMAP Fase 5). No
+// requiere sesión (no expone datos): explica qué sigue funcionando.
+import '../../styles/global.css';
+
+export const prerender = false;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Sin conexión — Rapidoz</title>
+    <meta name="theme-color" content="#0e7490" />
+  </head>
+  <body class="flex min-h-screen items-center justify-center bg-muted/30 px-6">
+    <div class="max-w-md rounded-2xl border bg-background p-8 text-center">
+      <p class="text-5xl">📴</p>
+      <h1 class="mt-3 text-xl font-bold">Sin conexión</h1>
+      <p class="mt-2 text-sm text-muted-foreground">
+        La <strong>agenda de entregas</strong> sigue disponible si ya la habías abierto hoy, y las
+        fotos de evidencia que ya viste también.
+      </p>
+      <p class="mt-2 text-sm text-muted-foreground">
+        Los handovers que captures sin conexión se guardan en la tablet y <strong>se suben solos</strong>
+        al reconectarte.
+      </p>
+      <a
+        href="/admin/entregas"
+        class="mt-5 inline-flex rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white"
+      >
+        Volver a intentar
+      </a>
+    </div>
+  </body>
+</html>

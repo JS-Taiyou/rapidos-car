@@ -104,6 +104,12 @@ const links = [
     window.location.href = '/admin/login';
   });
 
+  // ---- Service worker del staff (Fase 5): agenda offline + cola de
+  // capturas. Registro idempotente desde cualquier página del panel. ------
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  }
+
   // ---- Alertas en vivo (sólo existen con sesión: el endpoint exige staff) --
   type Alert = {
     id: number;
