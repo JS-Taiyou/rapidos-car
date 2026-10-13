@@ -28,7 +28,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 export async function GET(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
   const rows = await sql`
     SELECT id, name, period, multiplier, priority,
@@ -39,7 +39,7 @@ export async function GET(context: APIContext): Promise<Response> {
 }
 
 export async function POST(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   let body: unknown;

@@ -79,13 +79,32 @@ export async function createSession(sqlClient: Sql, userId: number): Promise<str
   return token;
 }
 
+export type Role = 'admin' | 'desk' | 'yard';
+
+export interface SessionUser {
+  id: number;
+  email: string;
+  role: Role;
+}
+
+export const ROLE_LABEL: Record<Role, string> = {
+  admin: 'Administrador',
+  desk: 'Recepción',
+  yard: 'Patio',
+};
+
+// Landing de cada rol: tras el login y en redirects por permisos.
+export function landingFor(role: Role): string {
+  return role === 'yard' ? '/admin/entregas' : '/admin';
+}
+
 export async function getSessionUser(
   sqlClient: Sql,
   token: string,
-): Promise<{ id: number; email: string } | null> {
+): Promise<SessionUser | null> {
   const tokenHash = await sha256Hex(token);
   const rows = await sqlClient`
-    SELECT u.id, u.email
+    SELECT u.id, u.email, u.role, u.active
     FROM sessions s
     JOIN admin_users u ON u.id = s.user_id
     WHERE s.token_hash = ${tokenHash} AND s.expires_at > now()
@@ -94,7 +113,8 @@ export async function getSessionUser(
   // sesiones vencidas gratis.
   await sqlClient`DELETE FROM sessions WHERE expires_at <= now()`;
   const row = rows[0];
-  return row ? { id: Number(row.id), email: row.email as string } : null;
+  if (!row || row.active !== true) return null;
+  return { id: Number(row.id), email: row.email as string, role: row.role as Role };
 }
 
 // Hash público del token: /api/auth (DELETE logout) lo reutiliza para borrar
@@ -121,13 +141,17 @@ export const cookieOptions = {
 // if (user instanceof Response) return user;`
 export async function requireAdmin(
   Astro: AstroGlobal,
-): Promise<{ id: number; email: string } | Response> {
+  allowedRoles?: Array<Role>,
+): Promise<SessionUser | Response> {
   const token = Astro.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return Astro.redirect('/admin/login');
   const user = await getSessionUser(sql, token);
   if (!user) {
     Astro.cookies.delete(SESSION_COOKIE, { path: '/' });
     return Astro.redirect('/admin/login');
+  }
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return Astro.redirect(landingFor(user.role));
   }
   return user;
 }
@@ -136,8 +160,12 @@ export async function requireAdmin(
 // en un fetch JSON es un bug de UX — el cliente recibiría HTML de login).
 export async function requireAdminApi(
   cookies: AstroCookies,
-): Promise<{ id: number; email: string } | null> {
+  allowedRoles?: Array<Role>,
+): Promise<SessionUser | null> {
   const token = cookies.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  return getSessionUser(sql, token);
+  const user = await getSessionUser(sql, token);
+  if (!user) return null;
+  if (allowedRoles && !allowedRoles.includes(user.role)) return null;
+  return user;
 }

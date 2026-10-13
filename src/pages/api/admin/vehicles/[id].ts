@@ -7,6 +7,7 @@ import { requireAdminApi } from '../../../../lib/auth';
 import { vehicleUpsertSchema } from '../../../../lib/validation';
 import { invalidateFleetCache } from '../../../../lib/fleet-cache';
 import { logAudit } from '../../../../lib/audit';
+import { getMaintenanceConfig } from '../../../../lib/maintenance';
 
 export const prerender = false;
 
@@ -35,7 +36,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 export async function PATCH(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   const id = parseInt(context.params.id ?? '', 10);
@@ -49,13 +50,47 @@ export async function PATCH(context: APIContext): Promise<Response> {
   }
 
   // PATCH semántico: solo los campos PRESENTES se actualizan (ausente ≠
-  // null). Los campos de operación (addUnits/setUnitStatus) se sacan antes.
+  // null). Los campos de operación (addUnits/setUnitStatus/serviceDone) se
+  // sacan antes.
   const parsed = vehicleUpsertSchema.partial().safeParse(body);
   if (!parsed.success) {
     return json({ error: 'validation', issues: parsed.error.issues }, 400);
   }
   const data = parsed.data;
   const { addUnits, setUnitStatus, ...modelFields } = data;
+  const serviceDone = (body as { serviceDone?: { unitId: number } }).serviceDone;
+
+  if (serviceDone) {
+    // Servicio realizado: la base pasa al ÚLTIMO odómetro conocido de la
+    // unidad (su devolución más reciente) y la bandera se apaga.
+    const unit = await sql`
+      SELECT v.id, v.plate,
+             COALESCE(
+               (SELECT MAX(s.odometer_in) FROM booking_segments s WHERE s.vehicle_id = v.id AND s.odometer_in IS NOT NULL),
+               v.last_service_odometer
+             ) AS odometer
+      FROM vehicles v
+      WHERE v.id = ${serviceDone.unitId} AND v.model_id = ${id}
+    `;
+    if (unit.length === 0) return json({ error: 'not_found' }, 404);
+    const odometer = unit[0].odometer === null ? 0 : Number(unit[0].odometer);
+    const config = await getMaintenanceConfig();
+    await sql`
+      UPDATE vehicles
+      SET last_service_odometer = ${odometer},
+          needs_service = false
+      WHERE id = ${serviceDone.unitId}
+    `;
+    await logAudit(sql, admin, {
+      action: 'maintenance',
+      entity: 'vehicle',
+      entityId: serviceDone.unitId,
+      summary: `Servicio realizado en ${unit[0].plate} (base: ${odometer.toLocaleString('es-MX')} km, próximo a +${config.intervalKm.toLocaleString('es-MX')} km)`,
+    }, context);
+    const refreshed = await sql`SELECT id, plate, status, needs_service FROM vehicles WHERE model_id = ${id} ORDER BY plate`;
+    const modelRow = (await sql`SELECT * FROM vehicle_models WHERE id = ${id}`)[0];
+    return json({ model: toModel(modelRow, refreshed) });
+  }
 
   const columns: Record<string, unknown> = {};
   if (modelFields.slug !== undefined) columns.slug = modelFields.slug;
@@ -117,7 +152,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     }, context);
     // Re-lectura con el merge de unidades (mismo patrón que el GET).
     const units = await sql`
-      SELECT id, plate, status FROM vehicles WHERE model_id = ${id} ORDER BY plate
+      SELECT id, plate, status, needs_service FROM vehicles WHERE model_id = ${id} ORDER BY plate
     `;
     return json({ model: toModel(model, units) });
   } catch (err) {
@@ -130,7 +165,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
 }
 
 export async function DELETE(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   const id = parseInt(context.params.id ?? '', 10);

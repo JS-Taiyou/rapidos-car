@@ -39,6 +39,7 @@ interface UnitRow {
   id: number;
   plate: string;
   status: 'active' | 'maintenance' | 'retired';
+  needsService?: boolean;
 }
 
 interface ModelRow {
@@ -301,6 +302,18 @@ export default function FleetManager() {
     if (res.ok) await loadFleet();
   }
 
+  async function markServiced(model: ModelRow, unit: UnitRow) {
+    const res = await fetch(`/api/admin/vehicles/${model.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceDone: { unitId: unit.id } }),
+    });
+    if (res.ok) {
+      toast.success(`Servicio registrado en ${unit.plate} (desde su último odómetro)`);
+      await loadFleet();
+    }
+  }
+
   // Filtros de catálogo: categoría y transmisión. Operan sobre TODA la
   // flota (incluidos los modelos deshabilitados): buscar un modelo inactivo
   // no debe requerir un paso previo.
@@ -445,6 +458,14 @@ export default function FleetManager() {
                         {model.units.map((unit) => (
                           <div key={unit.id} className="flex max-w-md items-center gap-2">
                             <span className="w-24 font-mono text-xs">{unit.plate}</span>
+                            {unit.needsService && (
+                              <span
+                                className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"
+                                title="Recorrió el intervalo de servicio: mándala a taller y registra el servicio"
+                              >
+                                🔧 SERVICIO
+                              </span>
+                            )}
                             <Select
                               value={unit.status}
                               onValueChange={(v) => setUnitStatus(model, unit, v as UnitRow['status'])}
@@ -458,6 +479,11 @@ export default function FleetManager() {
                                 <SelectItem value="retired">Retirada</SelectItem>
                               </SelectContent>
                             </Select>
+                            {unit.needsService && (
+                              <Button size="sm" variant="outline" onClick={() => markServiced(model, unit)}>
+                                ✓ Servicio hecho
+                              </Button>
+                            )}
                           </div>
                         ))}
                         <div className="flex max-w-md items-center gap-2 pt-1">

@@ -30,10 +30,8 @@ export default function LoginForm() {
         body: JSON.stringify(values),
       });
       if (res.ok) {
-        // Navegación dura: login es boundary de aplicación; la recarga
-        // limpia islas montadas y fuerza a re-evaluar la cookie en servidor.
-        // NO setSubmitting(false): la página se descarga.
-        window.location.href = '/admin';
+        const data = (await res.json().catch(() => ({}))) as { redirect?: string };
+        window.location.href = data.redirect ?? '/admin';
         return;
       }
       const data = (await res.json().catch(() => ({}))) as { error?: string };

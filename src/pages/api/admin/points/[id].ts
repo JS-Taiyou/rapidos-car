@@ -29,7 +29,7 @@ const pointPatchSchema = z.object({
 });
 
 export async function PATCH(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   const id = parseInt(context.params.id ?? '', 10);
@@ -71,7 +71,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
 }
 
 export async function DELETE(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   const id = parseInt(context.params.id ?? '', 10);

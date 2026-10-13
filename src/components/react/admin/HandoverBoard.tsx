@@ -441,6 +441,15 @@ function HandoverDialog({
       }
       if (res.ok) {
         toast.success(`${item.code}: ${kind === 'out' ? 'auto entregado' : 'auto devuelto'}`);
+        const data = (await res.json().catch(() => ({}))) as {
+          serviceDue?: { kmSinceService: number; intervalKm: number } | null;
+        };
+        if (data.serviceDue) {
+          toast.warning(
+            `🔧 La unidad recorrió ${data.serviceDue.kmSinceService.toLocaleString('es-MX')} km desde su último servicio (intervalo ${data.serviceDue.intervalKm.toLocaleString('es-MX')}): márcala en Flota cuando vaya a taller.`,
+            { duration: 8000 },
+          );
+        }
         onDone();
         return;
       }

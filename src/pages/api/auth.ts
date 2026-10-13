@@ -4,7 +4,7 @@
 import type { APIContext } from 'astro';
 import { sql } from '../../lib/db';
 import { loginSchema } from '../../lib/validation';
-import { createSession, hashToken, verifyPassword, SESSION_COOKIE, cookieOptions } from '../../lib/auth';
+import { createSession, hashToken, verifyPassword, SESSION_COOKIE, cookieOptions, landingFor } from '../../lib/auth';
 import { logAudit } from '../../lib/audit';
 
 export const prerender = false;
@@ -82,12 +82,14 @@ export async function POST(context: APIContext): Promise<Response> {
   attempts.delete(ip);
   const token = await createSession(sql, Number(row.id));
   context.cookies.set(SESSION_COOKIE, token, cookieOptions);
+  const roleRows = await sql`SELECT role FROM admin_users WHERE id = ${Number(row.id)}`;
+  const redirect = landingFor(roleRows[0]?.role as 'admin' | 'desk' | 'yard');
   await logAudit(sql, { id: Number(row.id), email }, {
     action: 'login',
     entity: 'session',
     summary: `Sesión iniciada (${ip})`,
   }, context);
-  return json({ ok: true });
+  return json({ ok: true, redirect });
 }
 
 export async function DELETE(context: APIContext): Promise<Response> {

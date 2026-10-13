@@ -8,7 +8,7 @@ import { getHandoverChecklists } from '../../../lib/handover';
 export const prerender = false;
 
 export async function GET(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk', 'yard']);
   if (!admin) return new Response(null, { status: 401 });
   return new Response(JSON.stringify({ checklists: await getHandoverChecklists() }), {
     headers: { 'Content-Type': 'application/json' },

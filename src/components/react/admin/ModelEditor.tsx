@@ -38,7 +38,7 @@ export interface EditableModel {
   dailyRateCents: number;
   photos: string[];
   active: boolean;
-  units: Array<{ id: number; plate: string; status: string }>;
+  units: Array<{ id: number; plate: string; status: string; needs_service?: boolean }>;
 }
 
 const CATEGORIES = ['small', 'compact', 'medium', 'large', 'van', 'cargo'];
@@ -84,6 +84,19 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
   const [units, setUnits] = useState(model.units);
   const [newPlate, setNewPlate] = useState('');
   const [confirmDisable, setConfirmDisable] = useState(false);
+
+  async function markServiced(unitId: number, plate: string) {
+    const res = await fetch(`/api/admin/vehicles/${model.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceDone: { unitId } }),
+    });
+    if (res.ok) {
+      toast.success(`Servicio registrado en ${plate} (desde su último odómetro)`);
+      const data = (await res.json()) as { model?: { units: typeof units } };
+      if (data.model?.units) setUnits(data.model.units);
+    }
+  }
 
   async function patchUnits(body: Record<string, unknown>) {
     const res = await fetch(`/api/admin/vehicles/${model.id}`, {
@@ -395,6 +408,14 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
                 <span className="flex-1 truncate rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-xs font-bold tracking-wider text-slate-700">
                   {unit.plate}
                 </span>
+                {unit.needs_service && (
+                  <span
+                    className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"
+                    title="Recorrió el intervalo de servicio: mándala a taller y registra el servicio"
+                  >
+                    🔧
+                  </span>
+                )}
                 <Select
                   value={unit.status}
                   onValueChange={(v) => patchUnits({ setUnitStatus: { unitId: unit.id, status: v } })}
@@ -408,6 +429,11 @@ export default function ModelEditor({ model }: { model: EditableModel }) {
                     <SelectItem value="retired">Retirada</SelectItem>
                   </SelectContent>
                 </Select>
+                {unit.needs_service && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => markServiced(unit.id, unit.plate)}>
+                    ✓ Servicio
+                  </Button>
+                )}
               </div>
             ))}
           </div>

@@ -16,7 +16,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 export async function GET(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk', 'yard']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   const dateRaw = context.url.searchParams.get('date');

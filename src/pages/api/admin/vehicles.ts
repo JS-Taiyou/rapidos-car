@@ -35,7 +35,7 @@ function toModel(row: Record<string, unknown>, units: unknown[]) {
 }
 
 export async function GET(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   // Dos queries simples + merge en JS (no json_agg anidado): con ~20
@@ -47,7 +47,7 @@ export async function GET(context: APIContext): Promise<Response> {
   for (const unit of units) {
     const modelId = Number(unit.model_id);
     const list = byModel.get(modelId) ?? [];
-    list.push({ id: Number(unit.id), plate: unit.plate, status: unit.status });
+    list.push({ id: Number(unit.id), plate: unit.plate, status: unit.status, needsService: unit.needs_service === true });
     byModel.set(modelId, list);
   }
 
@@ -57,7 +57,7 @@ export async function GET(context: APIContext): Promise<Response> {
 }
 
 export async function POST(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   let body: unknown;

@@ -31,7 +31,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 export async function GET(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   const rows = await sql`SELECT id, name, price_cents, per, active FROM extras ORDER BY id`;
@@ -47,7 +47,7 @@ export async function GET(context: APIContext): Promise<Response> {
 }
 
 export async function POST(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   let body: unknown;
@@ -83,7 +83,7 @@ export async function POST(context: APIContext): Promise<Response> {
 }
 
 export async function PATCH(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
   const id = parseInt(context.url.searchParams.get('id') ?? '', 10);
   if (Number.isNaN(id)) return json({ error: 'invalid_id' }, 400);
@@ -120,7 +120,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
 }
 
 export async function DELETE(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
   const id = parseInt(context.url.searchParams.get('id') ?? '', 10);
   if (Number.isNaN(id)) return json({ error: 'invalid_id' }, 400);

@@ -7,6 +7,7 @@ import { sql } from '../../../lib/db';
 import { requireAdminApi } from '../../../lib/auth';
 import { invalidateTenantCache, getTenant } from '../../../lib/tenant';
 import { getHandoverChecklists } from '../../../lib/handover';
+import { getMaintenanceConfig } from '../../../lib/maintenance';
 import { logAudit } from '../../../lib/audit';
 
 export const prerender = false;
@@ -24,6 +25,12 @@ const logoSchema = z.object({
   icon: z.string().min(2).max(30).default('bolt'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color hex (ej. #0e7490)').default('#0e7490'),
   url: z.string().min(1).optional(),
+});
+
+// Mantenimiento por kilometraje (switch + intervalo ajustable en el panel).
+const maintenanceSchema = z.object({
+  enabled: z.boolean(),
+  intervalKm: z.number().int().min(100).max(100000),
 });
 
 // Reputación Google capturada a mano (sin API key ni dominio que verificar
@@ -58,16 +65,21 @@ const settingsPatchSchema = z.object({
   logo: logoSchema.optional(),
   google: googleSchema.optional(),
   checklists: checklistsSchema.optional(),
+  maintenance: maintenanceSchema.optional(),
 });
 
 export async function GET(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
-  return json({ tenant: await getTenant(), checklists: await getHandoverChecklists() });
+  return json({
+    tenant: await getTenant(),
+    checklists: await getHandoverChecklists(),
+    maintenance: await getMaintenanceConfig(),
+  });
 }
 
 export async function PATCH(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   let body: unknown;
@@ -105,6 +117,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     if (d.logo !== undefined) await upsert('tenant.logo', d.logo);
     if (d.google !== undefined) await upsert('tenant.google', d.google);
     if (d.checklists !== undefined) await upsert('handover_checklists', d.checklists);
+    if (d.maintenance !== undefined) await upsert('maintenance', d.maintenance);
   } catch (err) {
     console.error('PATCH /api/admin/settings falló:', err);
     return json({ error: 'internal' }, 500);

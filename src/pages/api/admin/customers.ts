@@ -7,7 +7,7 @@ import { requireAdminApi } from '../../../lib/auth';
 export const prerender = false;
 
 export async function GET(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return new Response(null, { status: 401 });
 
   const q = (context.url.searchParams.get('q') ?? '').trim();

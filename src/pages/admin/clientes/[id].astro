@@ -11,7 +11,7 @@ import '../../../styles/global.css';
 
 export const prerender = false;
 
-const admin = await requireAdmin(Astro);
+const admin = await requireAdmin(Astro, ['admin', 'desk']);
 if (admin instanceof Response) return admin;
 
 const id = parseInt(Astro.params.id ?? '', 10);
@@ -54,7 +54,7 @@ const customer = row
     <title>{customer ? `${customer.fullName} — Rapidoz Admin` : 'No encontrado — Rapidoz Admin'}</title>
   </head>
   <body class="min-h-screen bg-muted/30">
-    <AdminNav />
+    <AdminNav role={admin.role} />
     <main class="mx-auto max-w-5xl px-4 py-8">
       {
         customer ? (

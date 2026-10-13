@@ -6,17 +6,19 @@
 import { requireAdmin } from '../../lib/auth';
 import { getTenant } from '../../lib/tenant';
 import { getHandoverChecklists } from '../../lib/handover';
+import { getMaintenanceConfig } from '../../lib/maintenance';
 import AdminNav from '../../components/admin/AdminNav.astro';
 import SettingsEditor from '../../components/react/admin/SettingsEditor.tsx';
 import '../../styles/global.css';
 
 export const prerender = false;
 
-const admin = await requireAdmin(Astro);
+const admin = await requireAdmin(Astro, ['admin']);
 if (admin instanceof Response) return admin;
 
 const tenant = await getTenant();
 const checklists = await getHandoverChecklists();
+const maintenance = await getMaintenanceConfig();
 ---
 
 <!doctype html>
@@ -28,7 +30,7 @@ const checklists = await getHandoverChecklists();
     <title>Ajustes — {tenant.name} Admin</title>
   </head>
   <body class="min-h-screen bg-muted/30">
-    <AdminNav />
+    <AdminNav role={admin.role} />
     <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
       <h1 class="text-2xl font-bold tracking-tight">Ajustes</h1>
       <SettingsEditor
@@ -44,6 +46,7 @@ const checklists = await getHandoverChecklists();
           logo: tenant.logo,
         }}
         checklists={checklists}
+        maintenance={{ enabled: maintenance.enabled ? 'true' : 'false', intervalKm: String(maintenance.intervalKm) }}
         google={{
           placeUrl: tenant.google.placeUrl ?? '',
           rating: tenant.google.rating?.toString() ?? '',

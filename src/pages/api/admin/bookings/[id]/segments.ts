@@ -485,7 +485,7 @@ async function readBooking(sqlTx: Sql, id: number) {
 
 export async function POST(context: APIContext): Promise<Response> {
   // plan-preview
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
   const id = parseInt(context.params.id ?? '', 10);
   if (Number.isNaN(id)) return json({ error: 'invalid_id' }, 400);
@@ -568,7 +568,7 @@ export async function POST(context: APIContext): Promise<Response> {
 }
 
 export async function PUT(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
   const id = parseInt(context.params.id ?? '', 10);
   if (Number.isNaN(id)) return json({ error: 'invalid_id' }, 400);

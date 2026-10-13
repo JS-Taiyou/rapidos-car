@@ -10,6 +10,7 @@ import { requireAdminApi } from '../../../../../lib/auth';
 import { broadcastBookingStatus } from '../../../../../lib/alerts';
 import { deriveBookingStatus, recalcBookingTotals } from '../../../../../lib/segments';
 import { logAudit } from '../../../../../lib/audit';
+import { evaluateMaintenance } from '../../../../../lib/maintenance';
 
 export const prerender = false;
 
@@ -37,7 +38,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 export async function PATCH(context: APIContext): Promise<Response> {
-  const admin = await requireAdminApi(context.cookies);
+  const admin = await requireAdminApi(context.cookies, ['admin', 'desk', 'yard']);
   if (!admin) return json({ error: 'unauthorized' }, 401);
 
   const segmentId = parseInt(context.params.id ?? '', 10);
@@ -119,6 +120,25 @@ export async function PATCH(context: APIContext): Promise<Response> {
 
   await recalcBookingTotals(sql, seg.booking_id);
 
+  // Mantenimiento por kilometraje: si la devolución cruza el intervalo
+  // configurado, la unidad queda marcada (el staff decide el taller).
+  let serviceDue: { kmSinceService: number; intervalKm: number } | null = null;
+  if (d.kind === 'in' && segRows.length > 0 && (segRows[0] as { vehicle_id?: number | null }).vehicle_id != null) {
+    const due = await evaluateMaintenance(
+      Number((segRows[0] as { vehicle_id: number }).vehicle_id),
+      d.odometer,
+    );
+    if (due) {
+      serviceDue = { kmSinceService: due.kmSinceService, intervalKm: due.intervalKm };
+      await logAudit(sql, admin, {
+        action: 'maintenance',
+        entity: 'vehicle',
+        entityId: Number((segRows[0] as { vehicle_id: number }).vehicle_id),
+        summary: `Servicio debido: ${due.kmSinceService.toLocaleString('es-MX')} km desde el último servicio (intervalo ${due.intervalKm.toLocaleString('es-MX')} km)`,
+      }, context);
+    }
+  }
+
   // Auditoría: la evidencia (odómetro/combustible/fotos) es exactamente lo
   // que se discute cuando algo sale mal.
   await logAudit(sql, admin, {
@@ -145,7 +165,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     });
   }
 
-  return json({ ok: true, segmentStatus: newSegStatus, bookingStatus: bookingAfter });
+  return json({ ok: true, segmentStatus: newSegStatus, bookingStatus: bookingAfter, serviceDue });
 }
 
 export function ALL(): Response {

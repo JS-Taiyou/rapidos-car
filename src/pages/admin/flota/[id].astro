@@ -11,7 +11,7 @@ import '../../../styles/global.css';
 
 export const prerender = false;
 
-const admin = await requireAdmin(Astro);
+const admin = await requireAdmin(Astro, ['admin', 'desk']);
 if (admin instanceof Response) return admin;
 
 const id = parseInt(Astro.params.id ?? '', 10);
@@ -46,7 +46,7 @@ const model = row
   : null;
 
 const unitRows = model
-  ? await sql`SELECT id, plate, status FROM vehicles WHERE model_id = ${model.id} ORDER BY plate`
+  ? await sql`SELECT id, plate, status, needs_service FROM vehicles WHERE model_id = ${model.id} ORDER BY plate`
   : [];
 const units = unitRows.map((u) => ({
   id: Number(u.id),
@@ -64,7 +64,7 @@ const units = unitRows.map((u) => ({
     <title>{model ? `Editar ${model.name} — Rapidoz Admin` : 'No encontrado — Rapidoz Admin'}</title>
   </head>
   <body class="min-h-screen bg-muted/30">
-    <AdminNav />
+    <AdminNav role={admin.role} />
     <main class="mx-auto max-w-6xl px-4 py-8">
       {
         model ? (

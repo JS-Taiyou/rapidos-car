@@ -10,7 +10,7 @@ import '../../styles/global.css';
 export const prerender = false;
 
 // GUARDIA PRIMERO (§2.3): sin sesión, nada de lo siguiente se ejecuta.
-const admin = await requireAdmin(Astro);
+const admin = await requireAdmin(Astro, ['admin', 'desk', 'yard']);
 if (admin instanceof Response) return admin;
 
 // Entregas de hoy por TRAMO (los bloqueos kind='block' no son entregas): un
@@ -48,6 +48,15 @@ const returns = await sql`
   ORDER BY upper(s.period)
 `;
 
+// Unidades que alcanzaron su intervalo de servicio (mantenimiento).
+const serviceRows = await sql`
+  SELECT v.plate, m.name AS model_name
+  FROM vehicles v
+  JOIN vehicle_models m ON m.id = v.model_id
+  WHERE v.needs_service = true
+  ORDER BY v.plate
+`;
+
 // Ocupación ahora: numerador = unidades amarradas por tramos vigentes;
 // denominador = unidades activas (taller/retiradas no son flota disponible).
 const occupancyRows = await sql`
@@ -79,7 +88,7 @@ const timeFmt = new Intl.DateTimeFormat('es-MX', {
     <meta name="theme-color" content="#0e7490" />
   </head>
   <body class="min-h-screen bg-muted/30">
-    <AdminNav />
+    <AdminNav role={admin.role} />
     <main class="mx-auto max-w-6xl space-y-8 px-4 py-8">
       <p class="text-sm text-muted-foreground">Hola, <strong>{admin.email}</strong></p>
 
@@ -97,6 +106,22 @@ const timeFmt = new Intl.DateTimeFormat('es-MX', {
           <p class="mt-1 text-4xl font-bold">{busy}/{fleet}</p>
         </div>
       </div>
+
+      {
+        serviceRows.length > 0 && (
+          <div class="rounded-xl border border-amber-300 bg-amber-50 p-5">
+            <p class="text-sm font-semibold text-amber-900">
+              🔧 Servicio pendiente ({serviceRows.length})
+            </p>
+            <p class="mt-1 text-sm text-amber-800">
+              {serviceRows.map((r) => `${r.plate} (${r.model_name})`).join(' · ')}
+            </p>
+            <p class="mt-1 text-xs text-amber-700">
+              Alcanzaron el intervalo de kilometraje: mándalas a taller y registra el servicio en Flota.
+            </p>
+          </div>
+        )
+      }
 
       <div class="rounded-xl border bg-background p-5">
         <div class="mb-2 flex items-center justify-between text-sm">

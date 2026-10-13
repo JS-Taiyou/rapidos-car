@@ -2,7 +2,7 @@
 // Admin — Login (/admin/login) — SSR. ÚNICA página /admin/* SIN requireAdmin
 // (llamarla aquí sería un bucle de redirects). El "card" es HTML+Tailwind
 // puro: el Card de shadcn es React.
-import { getSessionUser, SESSION_COOKIE } from '../../lib/auth';
+import { getSessionUser, SESSION_COOKIE, landingFor } from '../../lib/auth';
 import { sql } from '../../lib/db';
 import '../../styles/global.css';
 import LoginForm from '../../components/react/admin/LoginForm.tsx';
@@ -16,7 +16,7 @@ const token = Astro.cookies.get(SESSION_COOKIE)?.value;
 const tenant = await getTenant();
 if (token) {
   const user = await getSessionUser(sql, token);
-  if (user) return Astro.redirect('/admin');
+  if (user) return Astro.redirect(landingFor(user.role));
 }
 ---
 

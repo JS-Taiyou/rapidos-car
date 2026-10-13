@@ -9,7 +9,7 @@ import HandoverBoard from '../../components/react/admin/HandoverBoard.tsx';
 
 export const prerender = false;
 
-const admin = await requireAdmin(Astro);
+const admin = await requireAdmin(Astro, ['admin', 'desk', 'yard']);
 if (admin instanceof Response) return admin;
 ---
 
@@ -29,7 +29,7 @@ if (admin instanceof Response) return admin;
     <link rel="apple-touch-icon" href="/admin/app-icon/192.png" />
   </head>
   <body class="min-h-screen bg-muted/30">
-    <AdminNav />
+    <AdminNav role={admin.role} />
     <main class="mx-auto max-w-6xl space-y-6 px-4 py-6">
       <div>
         <h1 class="text-2xl font-bold tracking-tight">Entregas del día</h1>

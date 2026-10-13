@@ -8,6 +8,7 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Toaster, toast } from '../../ui/sonner';
 import PhotoDropzone from './PhotoDropzone';
+import MoneyInput from '../../ui/money-input';
 import { ICON_GALLERY, ICON_CATEGORIES } from '../../../lib/icons';
 
 interface TenantLogo {
@@ -47,10 +48,12 @@ export default function SettingsEditor({
   tenant,
   checklists,
   google,
+  maintenance,
 }: {
   tenant: EditableTenant;
   checklists: { out: EditableChecklistItem[]; in: EditableChecklistItem[] };
   google: EditableGoogle;
+  maintenance: { enabled: string; intervalKm: string };
 }) {
   const [form, setForm] = useState({
     name: tenant.name,
@@ -64,6 +67,7 @@ export default function SettingsEditor({
   const [logo, setLogo] = useState<TenantLogo>(tenant.logo);
   const [cl, setCl] = useState(checklists);
   const [g, setG] = useState(google);
+  const [mt, setMt] = useState(maintenance);
   const [saving, setSaving] = useState(false);
 
   function setPhone(i: number, value: string) {
@@ -94,6 +98,10 @@ export default function SettingsEditor({
           checklists: {
             out: cl.out.filter((c) => c.label.trim().length > 1),
             in: cl.in.filter((c) => c.label.trim().length > 1),
+          },
+          maintenance: {
+            enabled: mt.enabled === 'true',
+            intervalKm: Math.max(100, Math.round(Number(mt.intervalKm) || 5000)),
           },
         }),
       });
@@ -356,6 +364,39 @@ export default function SettingsEditor({
           <p className="text-xs text-muted-foreground">
             Captura manual por ahora (sin API key); se actualiza con Places API cuando haya dominio.
           </p>
+        </fieldset>
+
+        {/* ---------- Mantenimiento por kilometraje ---------- */}
+        <fieldset className="space-y-3 rounded-xl border bg-background p-5">
+          <legend className="px-1 text-sm font-semibold">Mantenimiento por kilometraje</legend>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-5 w-5 accent-[#0e7490]"
+              checked={mt.enabled === 'true'}
+              onChange={(e) => setMt({ ...mt, enabled: e.target.checked ? 'true' : 'false' })}
+            />
+            Avisar cuando una unidad recorra el intervalo sin servicio
+          </label>
+          {mt.enabled === 'true' && (
+            <div className="max-w-56 space-y-1">
+              <Label htmlFor="st-mtkm">Intervalo de servicio</Label>
+              <MoneyInput
+                id="st-mtkm"
+                prefix=""
+                suffix="km"
+                min={100}
+                step={100}
+                inputMode="numeric"
+                value={mt.intervalKm}
+                onChange={(e) => setMt({ ...mt, intervalKm: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Se evalúa al cerrar cada devolución (odómetro del handover); la unidad queda marcada
+                con 🔧 en Flota hasta que registres el servicio.
+              </p>
+            </div>
+          )}
         </fieldset>
 
         {/* ---------- Checklists de entrega/devolución (Fase 3) ---------- */}

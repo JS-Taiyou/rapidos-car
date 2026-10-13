@@ -4,22 +4,31 @@
 // (sólo staff), beep-beep Web Audio + globito clicable por reservación
 // entrante. El botón "Salir" sigue siendo el script inline de 5 líneas.
 import { getTenant } from '../../lib/tenant';
+import { ROLE_LABEL, type Role } from '../../lib/auth';
 
+interface Props {
+  role?: Role;
+}
+
+const { role = 'admin' } = Astro.props;
 const tenant = await getTenant();
 
 const current = Astro.url.pathname;
+// Visibilidad por rol: el patio vive en entregas; recepción opera todo
+// menos identidad del negocio y usuarios; admin lo ve completo.
 const links = [
-  { href: '/admin', label: 'Dashboard' },
-  { href: '/admin/entregas', label: 'Entregas' },
-  { href: '/admin/reservaciones', label: 'Reservaciones' },
-  { href: '/admin/flota', label: 'Flota' },
-  { href: '/admin/tarifas', label: 'Tarifas' },
-  { href: '/admin/reportes', label: 'Reportes' },
-  { href: '/admin/clientes', label: 'Clientes' },
-  { href: '/admin/puntos', label: 'Puntos' },
-  { href: '/admin/ajustes', label: 'Ajustes' },
-  { href: '/admin/auditoria', label: 'Auditoría' },
-];
+  { href: '/admin', label: 'Dashboard', roles: ['admin', 'desk', 'yard'] },
+  { href: '/admin/entregas', label: 'Entregas', roles: ['admin', 'desk', 'yard'] },
+  { href: '/admin/reservaciones', label: 'Reservaciones', roles: ['admin', 'desk'] },
+  { href: '/admin/flota', label: 'Flota', roles: ['admin', 'desk'] },
+  { href: '/admin/tarifas', label: 'Tarifas', roles: ['admin', 'desk'] },
+  { href: '/admin/reportes', label: 'Reportes', roles: ['admin', 'desk'] },
+  { href: '/admin/clientes', label: 'Clientes', roles: ['admin', 'desk'] },
+  { href: '/admin/puntos', label: 'Puntos', roles: ['admin', 'desk'] },
+  { href: '/admin/ajustes', label: 'Ajustes', roles: ['admin'] },
+  { href: '/admin/usuarios', label: 'Usuarios', roles: ['admin'] },
+  { href: '/admin/auditoria', label: 'Auditoría', roles: ['admin', 'desk'] },
+].filter((l) => l.roles.includes(role));
 ---
 
 <nav class="border-b bg-background">
@@ -50,7 +59,10 @@ const links = [
         ))
       }
     </ul>
-    <form id="logout-form" class="ml-auto shrink-0">
+    <span class="ml-auto hidden shrink-0 text-xs text-muted-foreground lg:inline" title="Rol de tu cuenta">
+      {ROLE_LABEL[role]}
+    </span>
+    <form id="logout-form" class="shrink-0">
       <button
         type="submit"
         class="rounded-md border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent sm:px-3"

@@ -9,7 +9,7 @@ import ReservationsBoard from '../../components/react/admin/ReservationsBoard.ts
 
 export const prerender = false;
 
-const admin = await requireAdmin(Astro);
+const admin = await requireAdmin(Astro, ['admin', 'desk']);
 if (admin instanceof Response) return admin;
 ---
 
@@ -22,7 +22,7 @@ if (admin instanceof Response) return admin;
     <title>Reservaciones — Rapidoz Admin</title>
   </head>
   <body class="min-h-screen bg-muted/30">
-    <AdminNav />
+    <AdminNav role={admin.role} />
     <main class="mx-auto max-w-6xl space-y-6 px-4 py-8">
       <h1 class="text-2xl font-bold tracking-tight">Reservaciones</h1>
       <!-- client:load: esta página ES la herramienta; hidrata de inmediato. -->

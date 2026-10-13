@@ -1,0 +1,36 @@
+---
+// Admin — Usuarios (/admin/usuarios) — cuentas del panel con roles
+// (Administrador/Recepción/Patio). Sólo administradores; las cuentas se
+// desactivan, nunca se borran (la auditoría las referencia).
+import { requireAdmin } from '../../lib/auth';
+import AdminNav from '../../components/admin/AdminNav.astro';
+import '../../styles/global.css';
+import UsersManager from '../../components/react/admin/UsersManager.tsx';
+
+export const prerender = false;
+
+const admin = await requireAdmin(Astro, ['admin']);
+if (admin instanceof Response) return admin;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Usuarios — Rapidoz Admin</title>
+  </head>
+  <body class="min-h-screen bg-muted/30">
+    <AdminNav role={admin.role} />
+    <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Usuarios</h1>
+        <p class="text-sm text-muted-foreground">
+          Cuentas del panel y sus permisos. Desactivar una cuenta cierra sus sesiones al instante.
+        </p>
+      </div>
+      <UsersManager client:load />
+    </main>
+  </body>
+</html>
