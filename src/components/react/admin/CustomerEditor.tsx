@@ -184,7 +184,7 @@ export default function CustomerEditor({ customer }: { customer: EditableCustome
             ) : (
               <ul className="divide-y text-sm">
                 {customer.contactHistory.map((h) => (
-                  <li className="flex items-center justify-between px-5 py-2.5">
+                  <li key={`${h.kind}-${h.value}`} className="flex items-center justify-between px-5 py-2.5">
                     <span className="font-mono text-xs">{h.value}</span>
                     <span className="text-xs text-muted-foreground">
                       {h.kind === 'email' ? 'email' : 'teléfono'} · retirado {dateFmt.format(new Date(h.retiredAt))}
@@ -202,7 +202,7 @@ export default function CustomerEditor({ customer }: { customer: EditableCustome
             ) : (
               <ul className="divide-y text-sm">
                 {bookings.map((b) => (
-                  <li>
+                  <li key={b.id}>
                     <a
                       href={`/admin/reservaciones?code=${encodeURIComponent(b.code)}`}
                       className="flex items-center justify-between gap-3 px-5 py-2.5 transition-colors hover:bg-accent/50"
