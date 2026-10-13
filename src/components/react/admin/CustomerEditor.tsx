@@ -2,7 +2,7 @@
 // datos editables (nombre, CURP, contacto, notas, no-show), historial de
 // contacto retirado (jsonb, solo lectura) y las reservas vinculadas con link
 // directo a su diálogo en Reservaciones. Solo español.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -64,11 +64,13 @@ export default function CustomerEditor({ customer }: { customer: EditableCustome
       setBookings(data.bookings ?? []);
     }
   }
-  // carga inicial (una sola vez por expediente)
-  if (!loadedOnce.has(customer.id)) {
-    loadedOnce.add(customer.id);
-    void loadBookings();
-  }
+  // Carga inicial en el CLIENTE (useEffect): el cuerpo del componente también
+  // corre en el SSR de la isla, y un fetch relativo ahí revienta en el
+  // servidor ("Failed to parse URL").
+  useEffect(() => {
+    loadBookings().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -231,4 +233,3 @@ export default function CustomerEditor({ customer }: { customer: EditableCustome
 }
 
 // Carga única por expediente (módulo, sin refetch loops).
-const loadedOnce = new Set<number>();
