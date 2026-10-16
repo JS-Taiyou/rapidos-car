@@ -140,7 +140,7 @@ export default function UsersManager() {
     <div className="space-y-6">
       <Toaster />
 
-      <div className="rounded-xl border">
+      <div className="rounded-xl border" data-tour="usr-tabla">
         <Table>
           <TableHeader>
             <TableRow>

@@ -66,6 +66,31 @@ const STAFF_TOURS: Record<string, TourStep[]> = {
     { element: '[data-tour=ajustes-mantenimiento]', title: 'Mantenimiento por kilometraje', body: 'Actívalo y define cada cuántos kilómetros avisar. Se evalúa al cerrar cada devolución con el odómetro del handover.' },
     { element: '[data-tour=ajustes-checklists]', title: 'Checklists del patio', body: 'Lo que el staff revisa al entregar y recoger; la casilla lo deja pre-marcado en la captura.' },
   ],
+  '/admin/reportes': [
+    { element: '[data-tour=rep-rango]', title: 'El periodo manda', body: 'Todo el reporte se calcula para el rango visible. Cambia las fechas y aplica: los ingresos se atribuyen por TRAMO y su fecha de inicio.' },
+    { element: '[data-tour=rep-resumen]', title: 'El embudo web', body: 'Solicitudes, conversiones y leads pendientes: cada lead capturado sin disponibilidad cuenta como demanda latente.' },
+    { element: '[data-tour=rep-modelos]', title: 'Ingresos y demanda por modelo', body: 'El oro del negocio: qué modelos facturan y cuáles solo generan pedidos (etiqueta SOLO DEMANDA) — candidatos a ampliar flota o ajustar precio.' },
+    { element: '[data-tour=rep-ocupacion]', title: 'Ocupación por unidad', body: 'Días ocupados sobre el rango. Las barras ámbar (80%+) son unidades candidatas a replicar en el inventario.' },
+    { element: '[data-tour=rep-rango]', title: 'Para el contador', body: 'El botón XLS descarga el periodo en dos hojas (rentas y desglose por tramo) con fórmulas de suma; la exportación queda auditada.' },
+  ],
+  '/admin/clientes': [
+    { element: '[data-tour=cli-buscar]', title: 'Un solo buscador', body: 'Nombre, CURP, email o teléfono — el CRM resuelve la identidad: la CURP es la llave fuerte y el email/teléfono auto-vinculan reservas entrantes.' },
+    { title: 'El expediente', body: 'De cada cliente: historial de rentas con precios, contactos retirados (nunca se descartan), notas y la bandera no-show. La CURP se captura con la identificación al firmar.' },
+    { title: 'Unificación sin duplicados', body: 'Si capturas una CURP que ya existe, los expedientes se fusionan: las reservas y el historial viajan al sobreviviente, y queda auditado.' },
+  ],
+  '/admin/puntos': [
+    { element: '[data-tour=puntos-lista]', title: 'Los puntos de entrega/recogida', body: 'Lo que ve el cliente en el cotizador. La tarifa se cobra por punto (y dos veces si recoges en otro punto: es un traslado del staff); vacía = gratuito.' },
+    { element: '[data-tour=puntos-forma]', title: 'Ubícalo en el mapa', body: 'Clic o arrastre del pin: la ubicación exacta alimenta el mapa público de /ubicaciones y el cálculo del staff.' },
+  ],
+  '/admin/usuarios': [
+    { element: '[data-tour=usr-tabla]', title: 'Cuentas y roles', body: 'Administrador (todo), Recepción (operación completa) y Patio (entregas y handovers). El rol filtra el menú y blinda páginas y APIs.' },
+    { title: 'Desactivar, nunca borrar', body: 'Una cuenta desactivada cierra sus sesiones al instante, pero el historial de auditoría la conserva. También desde aquí se reestablecen contraseñas.' },
+    { title: 'Protección dura', body: 'El panel nunca se queda sin administradores activos: el último no puede ser degradado ni desactivado.' },
+  ],
+  '/admin/auditoria': [
+    { element: '[data-tour=aud-filtros]', title: 'Quién hizo qué, cuándo', body: 'Filtra por usuario, entidad, acción y fechas — o busca una reservación por su código.' },
+    { element: '[data-tour=aud-tabla]', title: 'El diff dice la verdad', body: 'Cada cambio muestra el antes → después (lo tachado en rojo es lo que era). Precios, estados, roles, merges, handovers y exportaciones: todo queda aquí.' },
+  ],
 };
 
 const STAFF_FALLBACK: TourStep[] = [

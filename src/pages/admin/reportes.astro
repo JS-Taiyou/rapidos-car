@@ -155,7 +155,7 @@ const dateShort = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZo
             {dateShort.format(from)} → {dateShort.format(to)} · {rangeDays} días
           </p>
         </div>
-        <form method="get" class="flex items-end gap-2">
+        <form method="get" class="flex items-end gap-2" data-tour="rep-rango">
           <div>
             <label for="rp-from" class="block text-xs text-muted-foreground">Desde</label>
             <input id="rp-from" type="date" name="from" value={fmtInput(from)}
@@ -181,7 +181,7 @@ const dateShort = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZo
       </div>
 
       <!-- Resumen -->
-      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-tour="rep-resumen">
         <div class="rounded-xl border bg-background p-5">
           <p class="text-sm text-muted-foreground">Rentas en el periodo</p>
           <p class="mt-1 text-4xl font-bold">{Number(summary.rentals)}</p>
@@ -211,7 +211,7 @@ const dateShort = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZo
       </div>
 
       <!-- Por modelo -->
-      <section class="rounded-xl border bg-background">
+      <section class="rounded-xl border bg-background" data-tour="rep-modelos">
         <h2 class="border-b px-5 py-3 font-semibold">Modelos: ingresos y demanda</h2>
         {
           modelsReport.length === 0 ? (
@@ -266,7 +266,7 @@ const dateShort = new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeZo
       </section>
 
       <!-- Ocupación por unidad -->
-      <section class="rounded-xl border bg-background">
+      <section class="rounded-xl border bg-background" data-tour="rep-ocupacion">
         <h2 class="border-b px-5 py-3 font-semibold">Ocupación por unidad ({rangeDays} días)</h2>
         {
           units.length === 0 ? (

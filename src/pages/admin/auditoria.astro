@@ -104,7 +104,7 @@ const qs = (extra: Record<string, string>): string => {
           <h1 class="text-2xl font-bold tracking-tight">Auditoría</h1>
           <p class="text-sm text-muted-foreground">{total} evento(s) · página {page} de {pages}</p>
         </div>
-        <form method="get" class="flex flex-wrap items-end gap-2">
+        <form method="get" class="flex flex-wrap items-end gap-2" data-tour="aud-filtros">
           <div>
             <label for="au-user" class="block text-xs text-muted-foreground">Usuario</label>
             <select id="au-user" name="user" class="h-9 rounded-md border bg-background px-2 text-sm">
@@ -154,7 +154,7 @@ const qs = (extra: Record<string, string>): string => {
         </form>
       </div>
 
-      <div class="overflow-x-auto rounded-xl border bg-background">
+      <div class="overflow-x-auto rounded-xl border bg-background" data-tour="aud-tabla">
         {
           rows.length === 0 ? (
             <p class="px-5 py-10 text-center text-sm text-muted-foreground">

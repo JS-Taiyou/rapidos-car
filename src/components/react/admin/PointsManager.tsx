@@ -141,7 +141,7 @@ export default function PointsManager() {
         <Button onClick={openCreate}>+ Nuevo punto</Button>
       </div>
 
-      <div className="rounded-xl border bg-background">
+      <div className="rounded-xl border bg-background" data-tour="puntos-lista">
         {points.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-muted-foreground">Sin puntos registrados.</p>
         ) : (
@@ -188,7 +188,7 @@ export default function PointsManager() {
               Ubica el pin en el mapa (clic o arrastre) y captura la tarifa — vacía = gratuito.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={save} className="space-y-4">
+          <form onSubmit={save} className="space-y-4" data-tour="puntos-forma">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="pt-name">Nombre</Label>
