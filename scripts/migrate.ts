@@ -2,6 +2,7 @@
 // registrando cada archivo en _migrations. Se corre con `npm run db:migrate`
 // (node --env-file=.env --import tsx ya inyecta DATABASE_URL).
 import postgres from 'postgres';
+import { sslOptionsFor } from '../src/lib/db-ssl';
 import { readdir, readFile } from 'node:fs/promises';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -12,7 +13,8 @@ if (!databaseUrl) {
 
 // max: 1 — BEGIN/COMMIT/ROLLBACK de cada migración deben caer en la MISMA
 // conexión; con pool > 1 el driver podría mandar el COMMIT por otra.
-const sql = postgres(databaseUrl, { max: 1 });
+const ssl = sslOptionsFor(databaseUrl);
+const sql = postgres(databaseUrl, { max: 1, ...(ssl ? { ssl } : {}) });
 
 // Bootstrap de la tabla de control: el migrador la necesita ANTES de saber
 // qué ya aplicó. 001_init.sql también la crea por defensa (IF NOT EXISTS).

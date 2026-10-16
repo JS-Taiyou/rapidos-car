@@ -2,6 +2,7 @@
 // admin). IDEMPOTENTE: ON CONFLICT DO NOTHING / WHERE NOT EXISTS — corre mil
 // veces sin duplicar. `npm run db:seed` DESPUÉS de `npm run db:migrate`.
 import postgres from 'postgres';
+import { sslOptionsFor } from '../src/lib/db-ssl';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -9,7 +10,8 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-const sql = postgres(databaseUrl, { max: 1 });
+const ssl = sslOptionsFor(databaseUrl);
+const sql = postgres(databaseUrl, { max: 1, ...(ssl ? { ssl } : {}) });
 
 // MANTENER EN SYNC CON src/lib/auth.ts — si allá cambian iteraciones o
 // formato, este seed genera passwords que el login rechaza.

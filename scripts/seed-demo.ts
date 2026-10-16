@@ -6,13 +6,15 @@
 // Los periodos se calculan RELATIVOS A HOY para que dashboard/reports
 // siempre tengan algo que mostrar, sin importar cuándo corras el script.
 import postgres from 'postgres';
+import { sslOptionsFor } from '../src/lib/db-ssl';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('falta DATABASE_URL: copia .env.example a .env');
   process.exit(1);
 }
-const sql = postgres(databaseUrl, { max: 1 });
+const ssl = sslOptionsFor(databaseUrl);
+const sql = postgres(databaseUrl, { max: 1, ...(ssl ? { ssl } : {}) });
 
 const DAY = 86_400_000;
 const now = Date.now();

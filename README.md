@@ -52,6 +52,36 @@ npm run dev                   # http://localhost:4321
 Admin: `/admin/login` — `admin@rapidoz.local` / `cambia-esto-ahora`
 (rota la contraseña en el primer uso).
 
+### Base de datos: local o Supabase (sin fricción)
+
+El acceso es SQL estándar sobre postgres.js — el mismo esquema corre igual
+en un Postgres local o en Supabase (la única extensión usada es `btree_gist`,
+disponible en Supabase). Para usar Supabase:
+
+1. Crea un proyecto en [supabase.com](https://supabase.com) (free tier ok).
+2. Copia la connection string **directa**: Settings → Database →
+   Connection string → *Direct connection* (puerto 5432) y ponla en
+   `DATABASE_URL` (con la contraseña real del proyecto).
+3. `npm run db:migrate && npm run db:seed` — listo: el SSL se exige
+   automáticamente para hosts de Supabase; un postgres local sigue plano.
+
+Migraciones, seed y la app usan la misma URL directa mientras despliegues
+UN contenedor. Si algún día escalas réplicas, cambia al pooler (puerto 6543,
+añade `&pgbouncer=true` a la URL) sólo para el runtime; las migraciones
+siempre van por la conexión directa.
+
+### Entrar con Google (staff, opcional)
+
+Las cuentas se crean en `/admin/usuarios` con su rol (email + contraseña).
+Si además quieres "Entrar con Google": crea un OAuth Client ID en
+[Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+(tipo Web application) con redirect URI
+`https://TU-DOMINIO/api/auth/google/callback` (y `http://localhost:4321/...`
+para desarrollo), y define `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+El botón aparece solo cuando ambas variables existen. La allowlist es
+estricta: sólo entra una cuenta de Google cuyo email ya esté registrado y
+activo en el panel — el login social no crea cuentas.
+
 ## Rebranding (white label)
 
 Todo lo que identifica al negocio vive en **un solo archivo**:

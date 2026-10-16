@@ -33,6 +33,7 @@
     "date-fns": "^4.4.0",
     "driver.js": "^1.10.1",
     "exceljs": "^4.4.0",
+    "jose": "^6.2.12",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.55.0",
     "postgres": "^3.4.9",

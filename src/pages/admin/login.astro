@@ -7,6 +7,7 @@ import { sql } from '../../lib/db';
 import '../../styles/global.css';
 import LoginForm from '../../components/react/admin/LoginForm.tsx';
 import { getTenant } from '../../lib/tenant';
+import { googleOAuthConfigured } from '../../lib/google-oauth';
 
 export const prerender = false;
 
@@ -37,7 +38,7 @@ if (token) {
         {tenant.name}
       </h1>
       <p class="mb-6 mt-1 text-sm text-muted-foreground">Panel interno</p>
-      <LoginForm client:load />
+      <LoginForm client:load googleEnabled={googleOAuthConfigured()} />
     </main>
   </body>
 </html>
