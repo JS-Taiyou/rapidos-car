@@ -16,7 +16,7 @@
 # ============================================================================
 
 # --- Etapa 1: dependencias + build -----------------------------------------
-FROM node:22-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app
 
 # npm ci primero (capa cacheable: sólo se reinstala si el lock cambió)
@@ -35,7 +35,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # --- Etapa 2: imagen de producción ------------------------------------------
-FROM node:22-slim
+FROM node:24-slim
 WORKDIR /app
 
 ENV NODE_ENV=production

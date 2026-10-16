@@ -31,8 +31,9 @@ cualquier negocio de renta de autos con solo cambiar su perfil de tenant.
 
 ## Stack
 
-Astro 7 (islas React) · Node 22+ LTS (`@astrojs/node` standalone; desarrollado
-y verificado en 22 y 26 — el contenedor usa `node:22-slim`) · PostgreSQL
+Astro 7 (islas React) · Node 24 LTS (`@astrojs/node` standalone; compatible
+desde 22.12, desarrollado y verificado en 24 y 26 — el contenedor usa
+`node:24-slim`) · PostgreSQL
 (postgres.js, sin ORM; migraciones SQL numeradas) · Tailwind v4 · shadcn/ui
 · zod · sharp. Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) para el
 detalle y el por qué de cada decisión.

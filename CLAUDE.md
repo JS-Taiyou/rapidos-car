@@ -1,7 +1,7 @@
 ## Stack
 
 - **Astro + React (islas)**, TypeScript estricto. Sin SPA.
-- **Runtime: Node 22+ LTS** (engines `>=22.12.0`; desarrollo verificado en 22 y 26) — NO hay Deno en el proyecto (runtime ni Deno Deploy).
+- **Runtime: Node 24 LTS** (engines `>=22.12.0`, compatible con 22 en mantenimiento; desarrollo verificado en 24 y 26) — NO hay Deno en el proyecto (runtime ni Deno Deploy).
 - **SSR/API:** adapter `@astrojs/node` (modo `standalone`); endpoints en `src/pages/api/`. Sin framework HTTP extra (Express/Fastify/Nest descartados, ver docs/ARCHITECTURE.md §2.14).
 - **Datos:** PostgreSQL en **Supabase** via `postgres` (postgres.js), sin ORM; migraciones en `db/migrations/` con `npm run db:migrate` / `npm run db:seed` (Node + tsx).
 - **Despliegue:** contenedor Docker (Fargate/Railway/Render/Fly.io) o adapters serverless de Netlify/Vercel — ver docs/ARCHITECTURE.md §8.
