@@ -29,3 +29,6 @@ uploads/
 
 # cookies de pruebas locales
 cr*.txt
+
+# BD embebida (modo pglite://)
+/data

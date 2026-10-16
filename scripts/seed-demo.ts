@@ -5,16 +5,14 @@
 // seed de flota: `node --env-file=.env --import tsx scripts/seed-demo.ts`.
 // Los periodos se calculan RELATIVOS A HOY para que dashboard/reports
 // siempre tengan algo que mostrar, sin importar cuándo corras el script.
-import postgres from 'postgres';
-import { sslOptionsFor } from '../src/lib/db-ssl';
+import { resolveDatabase, closeEmbeddedDatabases } from '../src/lib/db-conn';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('falta DATABASE_URL: copia .env.example a .env');
   process.exit(1);
 }
-const ssl = sslOptionsFor(databaseUrl);
-const sql = postgres(databaseUrl, { max: 1, ...(ssl ? { ssl } : {}) });
+const sql = await resolveDatabase(databaseUrl, { max: 1 });
 
 const DAY = 86_400_000;
 const now = Date.now();
@@ -194,4 +192,8 @@ main()
     console.error(err);
     process.exit(1);
   })
-  .finally(() => sql.end());
+  .finally(async () => {
+  await sql.end({ timeout: 5 });
+  await closeEmbeddedDatabases();
+  process.exit(0);
+});

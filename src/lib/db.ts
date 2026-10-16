@@ -4,8 +4,8 @@
 // REGLA DE ORO: este archivo SOLO se importa en código servidor — frontmatter
 // de .astro y endpoints .ts, NUNCA en una isla React (.tsx): rompería el
 // bundle del cliente y filtraría credenciales.
-import postgres from 'postgres';
-import { sslOptionsFor } from './db-ssl';
+import type postgres from 'postgres';
+import { resolveDatabase } from './db-conn';
 
 // Runtime PRIMERO: Astro hornea import.meta.env.* dentro del bundle en
 // BUILD time (p.ej. la variable dummy del Dockerfile o un build de CI), y
@@ -17,14 +17,13 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL no está definida; copia .env.example a .env');
 }
 
-// SSL para Postgres administrado (Supabase y similares exigen cifrar).
 export { sslOptionsFor } from './db-ssl';
 
-// Pool chico y deliberado (ARCHITECTURE §2.15): 5 conexiones por proceso.
-// Con Supabase usar la conexión DIRECTA (5432) para migraciones Y runtime
-// mientras sea un proceso único; el pooler (6543) sólo al escalar réplicas.
-const ssl = sslOptionsFor(DATABASE_URL);
-export const sql = postgres(DATABASE_URL, { max: 5, ...(ssl ? { ssl } : {}) });
+// Pool chico y deliberado (ARCHITECTURE §2.15): 5 conexiones por proceso
+// contra Postgres/Supabase; 1 en el modo embebido (pglite://). El
+// top-level await resuelve la conexión ANTES de que cualquier query corra
+// (en pglite, el socket local debe existir primero).
+export const sql = await resolveDatabase(DATABASE_URL, { max: 5 });
 
 // Tipo compartido para helpers que corren queries: Sql (singleton) y
 // TransactionSql (el de sql.begin) extienden ambos ISql, así que las

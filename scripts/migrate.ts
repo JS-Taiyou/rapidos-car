@@ -1,8 +1,7 @@
 // Migrador SQL mínimo: aplica db/migrations/*.sql una sola vez y en orden,
 // registrando cada archivo en _migrations. Se corre con `npm run db:migrate`
 // (node --env-file=.env --import tsx ya inyecta DATABASE_URL).
-import postgres from 'postgres';
-import { sslOptionsFor } from '../src/lib/db-ssl';
+import { resolveDatabase, closeEmbeddedDatabases } from '../src/lib/db-conn';
 import { readdir, readFile } from 'node:fs/promises';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -13,8 +12,7 @@ if (!databaseUrl) {
 
 // max: 1 — BEGIN/COMMIT/ROLLBACK de cada migración deben caer en la MISMA
 // conexión; con pool > 1 el driver podría mandar el COMMIT por otra.
-const ssl = sslOptionsFor(databaseUrl);
-const sql = postgres(databaseUrl, { max: 1, ...(ssl ? { ssl } : {}) });
+const sql = await resolveDatabase(databaseUrl, { max: 1 });
 
 // Bootstrap de la tabla de control: el migrador la necesita ANTES de saber
 // qué ya aplicó. 001_init.sql también la crea por defensa (IF NOT EXISTS).
@@ -67,4 +65,6 @@ for (const name of files) {
 }
 
 console.log(`${migrated} aplicadas, ${skipped} ya existían`);
-await sql.end();
+await sql.end({ timeout: 5 });
+await closeEmbeddedDatabases();
+process.exit(0);

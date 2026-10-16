@@ -70,6 +70,23 @@ UN contenedor. Si algún día escalas réplicas, cambia al pooler (puerto 6543,
 añade `&pgbouncer=true` a la URL) sólo para el runtime; las migraciones
 siempre van por la conexión directa.
 
+### Modo embebido: Postgres en un archivo (tenant pequeño)
+
+¿Una sola rentadora sin base de datos externa? El proyecto puede correr con
+**PGlite** — un Postgres real embebido en el proceso, persistido en un
+archivo (mismas migraciones, misma constraint anti-doble-reserva):
+
+```bash
+DATABASE_URL=pglite://./data/rapidoz   # en .env
+npm run db:migrate && npm run db:seed
+npm run dev
+```
+
+Backup = copiar el directorio `data/`. Limitaciones honestas: una consulta
+a la vez (pool de 1), y NO sirve si corres varias réplicas del contenedor
+— para eso, Postgres o Supabase. Es ideal para probar el proyecto de cero
+en un minuto.
+
 ### Entrar con Google (staff, opcional)
 
 Las cuentas se crean en `/admin/usuarios` con su rol (email + contraseña).
