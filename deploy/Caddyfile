@@ -1,0 +1,30 @@
+# ============================================================================
+# Caddy — TLS automático (Let's Encrypt) + reverse proxy.
+# Sustituye TU-DOMINIO por el real; Caddy gestiona certificados y renovación
+# solo con exponer los puertos 80/443 y tener el DNS apuntando al servidor.
+# ============================================================================
+TU-DOMINIO {
+  encode zstd gzip
+
+  # Estáticos del build y fotos de flota: inmutables, cache agresivo.
+  @static path /_astro/* /images/* /favicon*
+  header @static Cache-Control "public, max-age=31536000, immutable"
+
+  # Evidencia de handovers: inmutable también, pero privada (sin index).
+  header /uploads/* Cache-Control "public, max-age=31536000, immutable"
+  header /uploads/handover/* X-Robots-Tag "noindex"
+
+  # El SSE del staff (/api/admin/notifications) requiere buffering off;
+  # Caddy ya hace flush inmediato por defecto en proxies, se explícito:
+  reverse_proxy app:4321 {
+    flush_interval -1
+  }
+
+  # Endurecimiento básico.
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    -Server
+  }
+}

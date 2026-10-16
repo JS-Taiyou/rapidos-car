@@ -1,0 +1,60 @@
+# ============================================================================
+# Producción en un VPS — un comando: docker compose up -d
+# ----------------------------------------------------------------------------
+# app    → el contenedor del proyecto (Dockerfile), con las migraciones como
+#          paso de release ANTES de arrancar el servidor.
+# caddy  → TLS automático (Let's Encrypt) + reverse proxy + compresión +
+#          caché de estáticos (deploy/Caddyfile).
+#
+# Uso en un VPS recién creado (Hetzner/DO/OVH/EC2…):
+#   1) Instala Docker:  curl -fsSL https://get.docker.com | sh
+#   2) Copia el repo (git clone) y crea .env (ver .env.example)
+#   3) export DOMINIO=tu-dominio.com   (DNS A/AAAA → IP del VPS)
+#   4) docker compose -f deploy/docker-compose.yml up -d --build
+#
+# La BD puede ser Supabase (DATABASE_URL=postgres://...) o el modo embebido
+# (DATABASE_URL=pglite:///data/rapidoz + el volumen data/).
+# ============================================================================
+name: rapidos
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Release real: migrar y (sólo primera vez o cuando quieras) sembrar.
+    # En modo pglite la BD nace vacía: el seed es seguro dejarlo (es
+    # idempotente); con Postgres/Supabase ya sembrado, quita la línea.
+    command: sh -c "npm run db:migrate && npm run db:seed && node dist/server/entry.mjs"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PUBLIC_SITE_URL: https://${DOMINIO}
+      PUBLIC_WHATSAPP_NUMBER: ${PUBLIC_WHATSAPP_NUMBER:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+      # Modo embebido: descomenta para persistir la BD en el host.
+      # - ./data:/app/data
+    expose:
+      - "4321"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  uploads:
+  caddy_data:
+  caddy_config:

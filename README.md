@@ -110,10 +110,51 @@ neutros al tenant.
 
 ## Despliegue
 
-Un solo proceso Node (estáticos + SSR + API). `Dockerfile` multi-stage
-listo para cualquier host de contenedores (Railway, Render, Fly.io) o VPS
-(Hetzner & co.). Las migraciones corren como paso de release, nunca al
-arrancar la réplica. Ver §8 de la arquitectura.
+Un solo proceso Node (estáticos + SSR + API, incluido el SSE del staff) —
+cualquier host de proceso persistente sirve; sólo los serverless
+(Netlify/Vercel functions) quedan descartados por el SSE. `Dockerfile`
+multi-stage listo; `deploy/` trae el docker-compose con Caddy (TLS
+automático) para VPS.
+
+### Checklist de producción
+
+1. **Dominio** apuntando (A/AAAA) a la IP del servidor.
+2. **BD**: Supabase (direct connection) o modo embebido `pglite://` — el
+   compose migra (y siembra la primera vez) antes de arrancar.
+3. **Variables**: `DATABASE_URL`, `PUBLIC_SITE_URL=https://TU-DOMINIO`,
+   `PUBLIC_WHATSAPP_NUMBER`, y opcional `GOOGLE_CLIENT_ID/SECRET`.
+4. **Volumen** `/app/uploads` (las fotos viven en disco, no en la BD).
+5. **UptimeRobot** (gratis) apuntando a `/` y monitoreo del certificado.
+6. **Backups**: Supabase tiene snapshots; en modo embebido, copia `data/`
+   (cron + rsync a R2/S3 en el plan free de Cloudflare).
+
+### Opciones de hosting (desde ~US$4/mes)
+
+| Host | Precio aprox. | Por qué / por qué no |
+|---|---|---|
+| **Hetzner Cloud** (Ashburn) | €4–6/mes (CX22/CAX11) | La mejor relación hardware/precio; DC en Ashburn = buena latencia NA. A veces pide verificación extra a cuentas nuevas de LATAM. |
+| **Railway** | ~US$5/mes | Cero ops: conecta el repo, detecta el Dockerfile, dominio y TLS incluidos. El más rápido para salir hoy. |
+| **Render** | US$7/mes + disco | Blueprint desde el repo, disco persistente barato, ops mínimas. |
+| **Fly.io** | ~US$4–6/mes | Deploy por CLI multi-región; requiere tarjeta. |
+| **OVH VPS** | ~US$4/mes | Barato con DC en Canadá; panel más tosco. |
+| **Oracle Cloud Free** | gratis (ARM 4 vCPU/24 GB) | Gratis de verdad, pero registro/experiencia irregular; para empezar sin gastar. |
+| **AWS Lightsail/EC2** | US$5–7/mes | Si el objetivo del proyecto también es presumir AWS en el CV. |
+
+Delante del host, **Cloudflare free** (DNS + CDN + TLS edge) reduce la
+latencia percibida desde México y protege el origen.
+
+### VPS en un comando
+
+```bash
+curl -fsSL https://get.docker.com | sh
+git clone TU-FORK && cd TU-FORK
+cp .env.example .env && nano .env        # DATABASE_URL y demás
+export DOMINIO=tu-dominio.com
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+Caddy gestiona el certificado y lo renueva; las alertas SSE y el PWA del
+patio funcionan por ser un proceso persistente. Ver §8 de la arquitectura.
 
 ---
 
