@@ -140,3 +140,21 @@
     background-color: color-mix(in oklab, #0e7490 25%, transparent);
   }
 }
+
+
+/* --- Onboarding (driver.js): popover con la voz del tenant ------------- */
+.driver-popover {
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--color-brand) 25%, var(--color-border, #e2e8f0));
+  max-width: 340px;
+}
+.driver-popover-title {
+  color: var(--color-brand);
+  font-weight: 700;
+}
+.driver-popover-progress-bar {
+  background: var(--color-brand);
+}
+.driver-popover-close-btn:hover {
+  color: var(--color-brand);
+}

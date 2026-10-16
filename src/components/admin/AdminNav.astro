@@ -31,7 +31,7 @@ const links = [
 ].filter((l) => l.roles.includes(role));
 ---
 
-<nav class="border-b bg-background">
+<nav class="border-b bg-background" data-role={role}>
   <div class="mx-auto flex h-14 max-w-6xl items-center gap-2 px-3 sm:gap-4 sm:px-4">
     <a href="/admin" class="flex shrink-0 items-center gap-2 font-bold">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -62,6 +62,16 @@ const links = [
     <span class="ml-auto hidden shrink-0 text-xs text-muted-foreground lg:inline" title="Rol de tu cuenta">
       {ROLE_LABEL[role]}
     </span>
+    <!-- Onboarding: relanza el tour de la pantalla actual (driver.js lazy). -->
+    <button
+      id="tour-btn"
+      type="button"
+      aria-label="Tour de esta pantalla"
+      title="¿Cómo funciona esta pantalla?"
+      class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-sm font-bold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
+      ?
+    </button>
     <form id="logout-form" class="shrink-0">
       <button
         type="submit"
@@ -115,6 +125,20 @@ const links = [
     await fetch('/api/auth', { method: 'DELETE' });
     window.location.href = '/admin/login';
   });
+
+  // ---- Onboarding (driver.js): botón ? y auto-tour la primera vez por rol.
+  const role = document.querySelector('nav[data-role]')?.getAttribute('data-role') ?? 'admin';
+  const startTour = async () => {
+    const { startStaffTour } = await import('../../lib/tours');
+    await startStaffTour(window.location.pathname, role as 'admin' | 'desk' | 'yard');
+  };
+  document.getElementById('tour-btn')?.addEventListener('click', startTour);
+  const seen = 'rpz-tour-' + role;
+  if (!window.localStorage.getItem(seen)) {
+    window.localStorage.setItem(seen, '1');
+    // pequeño delay: que las islas hidraten y las anclas existan.
+    window.setTimeout(() => startTour().catch(() => undefined), 900);
+  }
 
   // ---- Service worker del staff (Fase 5): agenda offline + cola de
   // capturas. Registro idempotente desde cualquier página del panel. ------

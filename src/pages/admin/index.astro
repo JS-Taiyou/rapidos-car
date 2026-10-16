@@ -109,7 +109,7 @@ const timeFmt = new Intl.DateTimeFormat('es-MX', {
 
       {
         serviceRows.length > 0 && (
-          <div class="rounded-xl border border-amber-300 bg-amber-50 p-5">
+          <div class="rounded-xl border border-amber-300 bg-amber-50 p-5" data-tour="dash-service">
             <p class="text-sm font-semibold text-amber-900">
               🔧 Servicio pendiente ({serviceRows.length})
             </p>
@@ -134,7 +134,7 @@ const timeFmt = new Intl.DateTimeFormat('es-MX', {
       </div>
 
       <div class="grid gap-6 lg:grid-cols-2">
-        <section class="rounded-xl border bg-background">
+        <section class="rounded-xl border bg-background" data-tour="dash-pickups">
           <h2 class="border-b px-5 py-3 font-semibold">Entregas de hoy</h2>
           {
             pickups.length === 0 ? (
@@ -161,7 +161,7 @@ const timeFmt = new Intl.DateTimeFormat('es-MX', {
           }
         </section>
 
-        <section class="rounded-xl border bg-background">
+        <section class="rounded-xl border bg-background" data-tour="dash-returns">
           <h2 class="border-b px-5 py-3 font-semibold">Devoluciones de hoy</h2>
           {
             returns.length === 0 ? (

@@ -146,7 +146,7 @@ export default function HandoverBoard() {
       <Toaster />
 
       {/* Barra de fecha: botones gordos para el pulgar, un día antes/después. */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-tour="entregas-fecha">
         <Button variant="outline" size="lg" className="h-12 w-12 p-0 text-xl" aria-label="Día anterior"
           onClick={() => setDate(shiftDate(date, -1))}>
           ‹
@@ -181,7 +181,7 @@ export default function HandoverBoard() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2" data-tour="entregas-contadores">
         <div className="rounded-xl border bg-background p-4">
           <p className="text-sm text-muted-foreground">Entregas pendientes</p>
           <p className="text-3xl font-bold text-brand">{pendingOut}</p>
@@ -242,7 +242,7 @@ function AgendaColumn({
   onOpen: (item: AgendaItem) => void;
 }) {
   return (
-    <section className="space-y-3">
+    <section className="space-y-3" data-tour="entregas-tarjeta">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{title} ({items.length})</h2>
       {items.length === 0 && (
         <p className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">

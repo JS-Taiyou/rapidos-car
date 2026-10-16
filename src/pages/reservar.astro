@@ -17,12 +17,26 @@ const whatsappFallback = buildWhatsAppUrl(t('booking.noscriptMessage'));
 
 <BaseLayout lang="es" title={t('booking.pageTitle')} description={t('booking.pageDesc')} alternateUrl="/en/book">
   <section class="mx-auto max-w-4xl px-4 py-10">
-    <h1 class="text-3xl font-bold tracking-tight">{t('booking.pageTitle')}</h1>
-    <p class="mt-2 text-sm text-muted-foreground">{t('booking.stepsSummary')}</p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight">{t('booking.pageTitle')}</h1>
+        <p class="mt-2 text-sm text-muted-foreground">{t('booking.stepsSummary')}</p>
+      </div>
+      <!-- Onboarding opt-in (driver.js se carga sólo al hacer clic). -->
+      <button
+        id="how-it-works"
+        type="button"
+        class="rounded-full border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        ¿Cómo funciona?
+      </button>
+    </div>
 
     <!-- min-height: sin él, el contenido salta al hidratar la isla (CLS). -->
-    <div class="mt-8 min-h-[32rem]">
-      <BookingFlow client:load lang="es" zones={(await getPickupPoints()).map((p) => ({ zone: p.key, name: p.name, feeCents: p.feeCents ?? 0 }))} />
+    <div class="mt-8 min-h-[32rem]" data-tour="book-wizard">
+      <div data-tour="book-widget">
+        <BookingFlow client:load lang="es" zones={(await getPickupPoints()).map((p) => ({ zone: p.key, name: p.name, feeCents: p.feeCents ?? 0 }))} />
+      </div>
     </div>
 
     <noscript>
@@ -45,4 +59,10 @@ const whatsappFallback = buildWhatsAppUrl(t('booking.noscriptMessage'));
       <li>✓ {t('booking.trust.support')}</li>
     </ul>
   </section>
+  <script>
+    document.getElementById('how-it-works')?.addEventListener('click', async () => {
+      const { startBookingTour } = await import('../lib/tours');
+      await startBookingTour('es');
+    });
+  </script>
 </BaseLayout>

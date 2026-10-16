@@ -344,7 +344,7 @@ export default function FleetManager() {
         <Button onClick={openCreate}>+ Nuevo modelo</Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" data-tour="flota-filtros">
         <div className="w-44 space-y-1">
           <Label htmlFor="flt-category" className="text-xs">Categoría</Label>
           <Select value={filterCategory} onValueChange={setFilterCategory}>
@@ -379,7 +379,7 @@ export default function FleetManager() {
         </p>
       </div>
 
-      <div className="rounded-xl border">
+      <div className="rounded-xl border" data-tour="flota-tabla">
         <Table>
           <TableHeader>
             <TableRow>

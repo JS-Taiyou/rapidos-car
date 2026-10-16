@@ -367,7 +367,7 @@ export default function SettingsEditor({
         </fieldset>
 
         {/* ---------- Mantenimiento por kilometraje ---------- */}
-        <fieldset className="space-y-3 rounded-xl border bg-background p-5">
+        <fieldset className="space-y-3 rounded-xl border bg-background p-5" data-tour="ajustes-mantenimiento">
           <legend className="px-1 text-sm font-semibold">Mantenimiento por kilometraje</legend>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -400,7 +400,7 @@ export default function SettingsEditor({
         </fieldset>
 
         {/* ---------- Checklists de entrega/devolución (Fase 3) ---------- */}
-        <fieldset className="space-y-4 rounded-xl border bg-background p-5 lg:col-span-2">
+        <fieldset className="space-y-4 rounded-xl border bg-background p-5 lg:col-span-2" data-tour="ajustes-checklists">
           <legend className="px-1 text-sm font-semibold">Checklists del patio</legend>
           <p className="text-xs text-muted-foreground">
             Lo que el staff revisa al entregar y recoger un auto. La casilla «por defecto» lo deja pre-marcado en la captura.

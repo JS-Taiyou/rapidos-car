@@ -544,7 +544,7 @@ export default function ReservationsBoard() {
     <div className="space-y-4">
       <Toaster />
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-3" data-tour="res-toolbar">
         {view === 'list' && (
           <>
             <div className="space-y-1">
@@ -593,13 +593,13 @@ export default function ReservationsBoard() {
             Calendario
           </Button>
         </div>
-        <Button className="ml-auto" onClick={() => setCaptureOpen(true)}>
+        <Button className="ml-auto" onClick={() => setCaptureOpen(true)} data-tour="res-capturar">
           + Capturar reservación
         </Button>
       </div>
 
       {view === 'list' ? (
-        <div className="rounded-xl border">
+        <div className="rounded-xl border" data-tour="res-tabla">
           <Table>
             <TableHeader>
               <TableRow>

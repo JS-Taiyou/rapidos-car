@@ -207,7 +207,7 @@ export default function RatesEditor() {
     <div className="space-y-5">
       <Toaster />
 
-      <div className="flex gap-1">
+      <div className="flex gap-1" data-tour="tarifas-tabs">
         <Button variant={tab === 'seasons' ? 'default' : 'outline'} size="sm" onClick={() => setTab('seasons')}>
           Temporadas
         </Button>
@@ -220,7 +220,7 @@ export default function RatesEditor() {
         <>
           {/* Franja anual: el año de un vistazo. Cada temporada una franja
               delgada; los solapes se VEN. */}
-          <div className="rounded-xl border bg-background p-4">
+          <div className="rounded-xl border bg-background p-4" data-tour="tarifas-franja">
             <p className="mb-2 text-sm font-semibold">El año de un vistazo</p>
             <div className="overflow-x-auto">
               <svg viewBox="0 0 732 100" className="min-w-[560px]" role="img" aria-label="Calendario de temporadas">
