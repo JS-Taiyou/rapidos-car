@@ -44,10 +44,13 @@ interface Props {
   withTime?: boolean;
   ariaLabel?: string;
   className?: string;
+  /** Clases para el botón visible (p.ej. h-12 en pantallas touch del patio);
+   *  twMerge resuelve el conflicto con el h-9 base. */
+  triggerClassName?: string;
   placeholder?: string;
 }
 
-export function DateTimeField({ value, onChange, withTime = false, ariaLabel, className, placeholder }: Props) {
+export function DateTimeField({ value, onChange, withTime = false, ariaLabel, className, triggerClassName, placeholder }: Props) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [cursor, setCursor] = useState(() => {
@@ -167,6 +170,7 @@ export function DateTimeField({ value, onChange, withTime = false, ariaLabel, cl
         className={cn(
           'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-left text-sm shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           !value && 'text-muted-foreground',
+          triggerClassName,
         )}
       >
         <span className="truncate tabular-nums">{triggerLabel}</span>

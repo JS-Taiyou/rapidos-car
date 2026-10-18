@@ -154,7 +154,8 @@ export default function HandoverBoard() {
         <DateTimeField
           value={date}
           onChange={(v) => v && setDate(v)}
-          className="h-12 w-auto text-base font-medium"
+          className="w-auto"
+          triggerClassName="h-12 px-4 text-base font-medium"
           ariaLabel="Fecha de la agenda"
           placeholder="Hoy"
         />

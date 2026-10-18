@@ -233,8 +233,13 @@ export default function UsersManager() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        <div className="w-44 space-y-1">
-          <Label htmlFor="nu-role">Rol</Label>
+        {/* Sin space-y-1: el <select> nativo oculto de Radix es un tercer
+            hijo y el margen del espacio le sumaba 4px a la columna (el label
+            quedaba más alto que los de al lado). */}
+        <div className="w-44">
+          <Label htmlFor="nu-role" className="mb-1">
+            Rol
+          </Label>
           <Select value={role} onValueChange={(v) => setRole(v as Role)}>
             <SelectTrigger id="nu-role">
               <SelectValue />
