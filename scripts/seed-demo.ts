@@ -77,6 +77,45 @@ async function main() {
     `;
   };
 
+  // Renta MULTI-TRAMO: booking + N segments contiguos (distintos modelos).
+  // Es la demo del replan: el board la muestra como chips y el calendario
+  // pinta un tramo por placa. Inserts simples por tramo: sin CTEs ni unsafe.
+  const insertMulti = async (
+    parts: Array<{ m: { id: number; unit_id: number }; start: Date; end: Date; total: number }>,
+    opts: {
+      name: string; email: string; phone: string; status?: string;
+      zone?: string; notes?: string | null;
+      requested?: Record<string, unknown>;
+    },
+  ) => {
+    const total = parts.reduce((sum, p) => sum + p.total, 0);
+    const rows = await sql`
+      INSERT INTO bookings
+        (code, kind, customer_name, customer_email, customer_phone,
+         total_cents, deposit_type, status, notes, requested, pricing)
+      VALUES
+        (${code()}, 'rental', ${opts.name}, ${opts.email}, ${opts.phone},
+         ${total}, 'deposit', ${opts.status ?? 'confirmed'}, ${opts.notes ?? null},
+         ${sql.json(JSON.parse(JSON.stringify({ channel: 'admin', ...(opts.requested ?? {}), totalCents: total })))}::jsonb,
+         ${sql.json(JSON.parse(JSON.stringify({ source: 'adjust', reason: 'Cambio de vehículo por staff', totalCents: total })))}::jsonb)
+      RETURNING id
+    `;
+    const bookingId = Number(rows[0].id);
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      await sql`
+        INSERT INTO booking_segments
+          (booking_id, idx, model_id, vehicle_id, period, status, pricing, total_cents, extras, pickup_zone)
+        VALUES
+          (${bookingId}, ${i + 1}, ${p.m.id}, ${p.m.unit_id},
+           tstzrange(${p.start}::timestamptz, ${p.end}::timestamptz, '[)'),
+           'reserved',
+           ${sql.json(JSON.parse(JSON.stringify({ source: 'adjust', reason: 'Cambio de vehículo por staff', totalCents: p.total })))}::jsonb,
+           ${p.total}, '[]'::jsonb, ${opts.zone ?? 'airport_mid'})
+      `;
+    }
+  };
+
   const gol = await model('gol-5-puertas');
   const versa = await model('beat-sedan');
   const kicks = await model('kia-soul');
@@ -147,6 +186,55 @@ async function main() {
     notes: 'Taller: servicio de frenos y llantas',
   });
 
+  // 8) Historia del MES PASADO (reportes con rango anterior y comparativas)
+  await insert(attitude, {
+    status: 'completed', start: at(-38), end: at(-35),
+    name: 'Ricardo Cetina', email: 'ricardo.cetina@gmail.com', phone: '999 412 8890',
+    total: 121500, zone: 'hotel_zone',
+    requested: { channel: 'web', model: { name: 'Dodge Attitude' }, totalCents: 121500 },
+    pricing: { source: 'engine', totalCents: 121500 },
+  });
+  await insert(kicks, {
+    status: 'completed', start: at(-33), end: at(-29),
+    name: 'Ana Gabriela Ku', email: 'ana.ku@outlook.com', phone: '999 224 6710',
+    total: 178600, zone: 'centro',
+    requested: { channel: 'admin', model: { name: 'Kia Soul' }, totalCents: 178600 },
+    pricing: { source: 'manual', totalCents: 178600 },
+  });
+  await insert(gol, {
+    status: 'cancelled', start: at(-30), end: at(-28),
+    name: 'Mauricio Pech', email: 'maupech@gmail.com', phone: '999 330 5512',
+    total: 61800, zone: 'airport_mid',
+    notes: 'Canceló por cambio de vuelo; re reservó para el mes que entra',
+    requested: { channel: 'web', model: { name: 'V.W. Gol 5 puertas' }, totalCents: 61800 },
+    pricing: { source: 'engine', totalCents: 61800 },
+  });
+
+  // 9) LA JOYA: renta MULTI-TRAMO (2 días matiz + 3 días soul + 2 días CRV) —
+  // el cliente cambió de vehículo a mitad de la renta; prorrateo por tramo.
+  await insertMulti(
+    [
+      { m: matiz, start: at(15, 9), end: at(17, 9), total: 47200 },
+      { m: kicks, start: at(17, 9), end: at(20, 9), total: 109200 },
+      { m: crv, start: at(20, 9), end: at(22, 9), total: 87400 },
+    ],
+    {
+      name: 'Valeria Canul', email: 'valeria.canul@gmail.com', phone: '999 887 2043',
+      zone: 'airport_mid',
+      notes: 'Cambio de vehículo a mitad de renta: empezó en Matiz, subió a Soul y cierra en CRV',
+    },
+  );
+
+  // 10) Lead web adicional sin atender (embudo con más carne)
+  await insert(crv, {
+    status: 'quoted', start: at(19), end: at(22),
+    name: 'Eduardo Pool', email: 'edpool@hotmail.com', phone: '999 156 3387',
+    total: 149600, zone: 'centro',
+    notes: 'Lead web: pidió fechas ya ocupadas; ofrecer alternativas',
+    requested: { channel: 'web', model: { name: 'Honda CRV' }, totalCents: 149600, reason: 'sin_disponibilidad' },
+    pricing: { source: 'engine', totalCents: 149600 },
+  });
+
   // Expedientes de clientes demo (el CRM linkea por email al existir; estos
   // se crean directos para tener CURP e historial listos)
   const demoCustomers = [
@@ -167,6 +255,18 @@ async function main() {
       notes: 'Lead sin confirmar — dijo que llama hoy por la tarde.',
       history: [],
     },
+    {
+      curp: 'KUAG920418MCRZN03', full_name: 'Ana Gabriela Ku Ek',
+      email: 'ana.ku@outlook.com', phone: '999 224 6710',
+      notes: 'Cliente recurrente de fin de semana; factura a su empresa.',
+      history: [{ kind: 'phone', value: '999 224 0088', retiredAt: new Date(now - 90 * DAY).toISOString() }],
+    },
+    {
+      curp: 'CAUV010730HCRPSA06', full_name: 'Valeria Canul Uc',
+      email: 'valeria.canul@gmail.com', phone: '999 887 2043',
+      notes: 'La renta multi-tramo (cambió de auto a mitad). Flexible con cambios.',
+      history: [],
+    },
   ];
   for (const c of demoCustomers) {
     await sql`
@@ -184,7 +284,7 @@ async function main() {
     WHERE lower(b.customer_email) = lower(c.email)
   `;
 
-  console.log('demo lista: 5 rentas (2 completadas, 1 activa, 2 confirmadas), 1 lead web, 1 bloqueo, 3 expedientes');
+  console.log('demo lista: 10 rentas (5 completadas + 1 cancelada, 1 activa, 3 confirmadas incl. 1 multi-tramo), 2 leads web, 1 bloqueo, 5 expedientes');
 }
 
 main()
