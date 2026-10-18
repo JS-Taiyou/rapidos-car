@@ -1,0 +1,26 @@
+# ============================================================================
+# Caddyfile para instalación DIRECTA en el host (Caddy via apt/package, sin
+# Docker): el proxy apunta a localhost:4321 donde escucha el rapidos.service.
+# Copia a /etc/caddy/Caddyfile sustituyendo TU-DOMINIO, luego:
+#   systemctl reload caddy
+# ============================================================================
+TU-DOMINIO {
+  encode zstd gzip
+
+  @static path /_astro/* /images/* /favicon*
+  header @static Cache-Control "public, max-age=31536000, immutable"
+
+  header /uploads/* Cache-Control "public, max-age=31536000, immutable"
+  header /uploads/handover/* X-Robots-Tag "noindex"
+
+  reverse_proxy localhost:4321 {
+    flush_interval -1
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    -Server
+  }
+}

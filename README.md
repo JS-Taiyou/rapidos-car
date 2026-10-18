@@ -143,6 +143,25 @@ automático) para VPS.
 Delante del host, **Cloudflare free** (DNS + CDN + TLS edge) reduce la
 latencia percibida desde México y protege el origen.
 
+### VPS sin Docker (bare-metal)
+
+Node 24 standalone en `/usr/local` (el tarball se extrae ahí y queda en el
+PATH de todos, systemd incluido), Caddy desde el paquete oficial, y el
+proceso atendido por systemd:
+
+```bash
+git clone https://github.com/JS-Taiyou/rapidos-car.git /opt/rapidos-car
+cd /opt/rapidos-car && cp .env.example .env && nano .env
+npm ci && npm run build
+cp deploy/rapidos.service /etc/systemd/system/
+cp deploy/Caddyfile.host /etc/caddy/Caddyfile   # pon TU-DOMINIO
+systemctl daemon-reload && systemctl enable --now rapidos
+journalctl -u rapidos -f                        # logs (migra y arranca solo)
+```
+
+Actualizar una versión es `git pull && npm ci && npm run build && systemctl
+restart rapidos`.
+
 ### VPS en un comando
 
 ```bash

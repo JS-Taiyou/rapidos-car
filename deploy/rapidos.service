@@ -1,0 +1,38 @@
+# ============================================================================
+# rapidos.service — ruta bare-metal (sin Docker): systemd mantiene el proceso
+# vivo (Restart=always) y corre las migraciones como paso de release ANTES
+# de arrancar el servidor.
+#
+# Instalación (app en /opt/rapidos-car):
+#   cp deploy/rapidos.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now rapidos
+#   journalctl -u rapidos -f        # logs en vivo (como docker logs)
+#
+# Deploy de una nueva versión:
+#   cd /opt/rapidos-car && git pull && npm ci && npm run build
+#   systemctl restart rapidos
+# ============================================================================
+[Unit]
+Description=Rapidos Car — sitio + panel (Astro standalone)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rapidos-car
+# Las variables del .env de la app (DATABASE_URL, etc.)
+EnvironmentFile=/opt/rapidos-car/.env
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=4321
+# /usr/local/bin está en el PATH por defecto de systemd (node/npm ahí).
+ExecStartPre=/usr/local/bin/npm run db:migrate
+ExecStart=/usr/local/bin/node dist/server/entry.mjs
+Restart=always
+RestartSec=5
+# Endurecimiento ligero
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
