@@ -76,20 +76,40 @@ try {
       { slug: 'ford-ranger', name: 'Ford Ranger', category: 'cargo', transmission: 'manual', seats: 3, luggage: 0, rate: 65000 },
     ];
 
+    // Fotos del catálogo: viven en el repo (public/images/fleet/<slug>-N.webp,
+    // 56 archivos commiteados) — el seed las asigna por convención de nombre,
+    // sin URLs externas. Para modelos ya existentes SIN fotos (siembras viejas),
+    // el upsert las repara: photos vacía => rellenar.
+    const { readdir } = await import('node:fs/promises');
+    const fleetDir = new URL('../public/images/fleet/', import.meta.url);
+    const imageFiles = (await readdir(fleetDir)).filter((f) => f.endsWith('.webp')).sort();
+    const photosBySlug = new Map<string, string[]>();
+    for (const file of imageFiles) {
+      const match = file.match(/^(.+)-\d+\.webp$/);
+      if (!match) continue;
+      const slug = match[1];
+      const list = photosBySlug.get(slug) ?? [];
+      list.push(`/images/fleet/${file}`);
+      photosBySlug.set(slug, list);
+    }
+
     let insertedModels = 0;
     for (const m of FLEET) {
+      const photos = photosBySlug.get(m.slug) ?? [];
       const rows = await tx`
         INSERT INTO vehicle_models
           (slug, name, category, transmission, seats, luggage, daily_rate_cents, photos)
         VALUES
           (${m.slug}, ${m.name}, ${m.category}, ${m.transmission}, ${m.seats},
-           ${m.luggage}, ${m.rate}, '{}'::text[])
-        ON CONFLICT (slug) DO NOTHING
+           ${m.luggage}, ${m.rate}, ${photos}::text[])
+        ON CONFLICT (slug) DO UPDATE
+          SET photos = EXCLUDED.photos
+          WHERE vehicle_models.photos = '{}'
         RETURNING slug
       `;
       insertedModels += rows.length;
     }
-    console.log(`vehicle_models: ${insertedModels} insertados`);
+    console.log(`vehicle_models: ${insertedModels} insertados/reparados (${photosBySlug.size} con fotos)`);
 
     // 1 unidad por modelo con placa pendiente (TODO: reemplazar por placas
     // reales desde /admin/flota) — sin unidad física el modelo no cotiza.
