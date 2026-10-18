@@ -1,9 +1,10 @@
 # ============================================================================
 # Caddy — TLS automático (Let's Encrypt) + reverse proxy.
-# Sustituye TU-DOMINIO por el real; Caddy gestiona certificados y renovación
-# solo con exponer los puertos 80/443 y tener el DNS apuntando al servidor.
+# El dominio llega por variable de entorno DOMINIO (compose la inyecta);
+# Caddy gestiona certificados y renovación solo con exponer 80/443 y el DNS
+# apuntando al servidor.
 # ============================================================================
-TU-DOMINIO {
+{$DOMINIO} {
   encode zstd gzip
 
   # Estáticos del build y fotos de flota: inmutables, cache agresivo.

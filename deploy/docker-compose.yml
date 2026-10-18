@@ -36,7 +36,7 @@ services:
       UPLOAD_DIR: /app/uploads
     volumes:
       - uploads:/app/uploads
-      # Modo embebido: descomenta para persistir la BD en el host.
+      # Modo embebido: descomenta y usa DATABASE_URL=pglite:///app/data/rapidoz
       # - ./data:/app/data
     expose:
       - "4321"
@@ -47,6 +47,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
