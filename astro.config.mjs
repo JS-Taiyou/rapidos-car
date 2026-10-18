@@ -12,6 +12,10 @@ export default defineConfig({
   site: process.env.PUBLIC_SITE_URL ?? 'http://localhost:4321',
   integrations: [react()],
   adapter: node({ mode: 'standalone' }),
+  // Dev en IPv4 explícito: en máquinas dual-stack "localhost" resuelve a ::1
+  // y el server queda inaccesible para todo lo que apunta a 127.0.0.1 (y si
+  // otro proyecto vive en ::1:4321, aquí nunca choca con él).
+  server: { host: '127.0.0.1' },
   vite: {
     plugins: [tailwindcss()],
   },
