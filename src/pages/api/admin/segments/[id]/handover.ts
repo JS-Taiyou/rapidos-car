@@ -63,7 +63,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     WHERE s.id = ${segmentId}
   `) as unknown as Array<{
     id: number; booking_id: number; idx: number; status: string;
-    code: string; booking_status: string;
+    vehicle_id: number | null; code: string; booking_status: string;
   }>;
   const seg = segRows[0];
   if (!seg) return json({ error: 'not_found' }, 404);
@@ -123,17 +123,14 @@ export async function PATCH(context: APIContext): Promise<Response> {
   // Mantenimiento por kilometraje: si la devolución cruza el intervalo
   // configurado, la unidad queda marcada (el staff decide el taller).
   let serviceDue: { kmSinceService: number; intervalKm: number } | null = null;
-  if (d.kind === 'in' && segRows.length > 0 && (segRows[0] as { vehicle_id?: number | null }).vehicle_id != null) {
-    const due = await evaluateMaintenance(
-      Number((segRows[0] as { vehicle_id: number }).vehicle_id),
-      d.odometer,
-    );
+  if (d.kind === 'in' && seg.vehicle_id != null) {
+    const due = await evaluateMaintenance(seg.vehicle_id, d.odometer);
     if (due) {
       serviceDue = { kmSinceService: due.kmSinceService, intervalKm: due.intervalKm };
       await logAudit(sql, admin, {
         action: 'maintenance',
         entity: 'vehicle',
-        entityId: Number((segRows[0] as { vehicle_id: number }).vehicle_id),
+        entityId: seg.vehicle_id,
         summary: `Servicio debido: ${due.kmSinceService.toLocaleString('es-MX')} km desde el último servicio (intervalo ${due.intervalKm.toLocaleString('es-MX')} km)`,
       }, context);
     }

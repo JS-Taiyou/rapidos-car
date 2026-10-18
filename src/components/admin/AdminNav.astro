@@ -32,34 +32,54 @@ const links = [
 ---
 
 <nav class="border-b bg-background" data-role={role}>
-  <div class="mx-auto flex h-14 max-w-6xl items-center gap-2 px-3 sm:gap-4 sm:px-4">
+  <!-- max-w-7xl (no 6xl como el contenido): el nav usa TODO el ancho
+       disponible antes de pensar en scroll. -->
+  <div class="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:gap-4 sm:px-4">
     <a href="/admin" class="flex shrink-0 items-center gap-2 font-bold">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
       </svg>
-      {tenant.name} <span class="hidden text-sm font-normal text-muted-foreground sm:inline">Panel</span>
+      <span class="hidden md:inline">{tenant.name}</span>
+      <span class="hidden text-sm font-normal text-muted-foreground xl:inline">Panel</span>
     </a>
-    <!-- En móvil la lista se desliza horizontal (sin scrollbar visual): el
-         panel completo debe ser usable en la tablet del patio. -->
-    <ul class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-1">
-      {
-        links.map((link) => (
-          <li class="shrink-0">
-            <a
-              href={link.href}
-              class:list={[
-                'block whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] font-medium sm:px-3 sm:text-sm',
-                current === link.href ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent',
-              ]}
-              aria-current={current === link.href ? 'page' : undefined}
-            >
-              {link.label}
-            </a>
-          </li>
-        ))
-      }
-    </ul>
-    <span class="ml-auto hidden shrink-0 text-xs text-muted-foreground lg:inline" title="Rol de tu cuenta">
+
+    <!-- La lista se compacta sola (min-w-0, paddings por breakpoint) y si AÚN
+         así no cabe, scrollea con scrollbar fino VISIBLE + flechas de
+         difuminado que avisan que hay más a los lados. -->
+    <div class="relative min-w-0 flex-1">
+      <ul
+        id="admin-nav-scroll"
+        class="flex items-center gap-0.5 overflow-x-auto pb-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,currentColor_35%,transparent)_transparent] sm:gap-1 [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar-track]:bg-transparent"
+      >
+        {
+          links.map((link) => (
+            <li class="shrink-0">
+              <a
+                href={link.href}
+                class:list={[
+                  'block whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium sm:px-2.5 sm:text-sm xl:px-3',
+                  current === link.href ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent',
+                ]}
+                aria-current={current === link.href ? 'page' : undefined}
+              >
+                {link.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+      <!-- Flechas de difuminado: sólo visibles cuando hay contenido oculto. -->
+      <span
+        id="nav-fade-left"
+        class="pointer-events-none absolute inset-y-0 left-0 w-14 bg-gradient-to-r from-background via-background/70 to-transparent opacity-0 transition-opacity"
+        aria-hidden="true"></span>
+      <span
+        id="nav-fade-right"
+        class="pointer-events-none absolute inset-y-0 right-0 w-14 bg-gradient-to-l from-background via-background/70 to-transparent opacity-100 transition-opacity"
+        aria-hidden="true"></span>
+    </div>
+
+    <span class="hidden shrink-0 text-xs text-muted-foreground xl:inline" title="Rol de tu cuenta">
       {ROLE_LABEL[role]}
     </span>
     <!-- Onboarding: relanza el tour de la pantalla actual (driver.js lazy). -->
@@ -125,6 +145,28 @@ const links = [
     await fetch('/api/auth', { method: 'DELETE' });
     window.location.href = '/admin/login';
   });
+
+  // ---- Nav: auto-scroll a la sección activa + flechas de "hay más" ------
+  (() => {
+    const scroller = document.getElementById('admin-nav-scroll');
+    if (!scroller) return;
+    const fadeL = document.getElementById('nav-fade-left');
+    const fadeR = document.getElementById('nav-fade-right');
+    const update = () => {
+      const max = scroller.scrollWidth - scroller.clientWidth;
+      fadeL?.classList.toggle('opacity-0', scroller.scrollLeft <= 4);
+      fadeR?.classList.toggle('opacity-0', max - scroller.scrollLeft <= 4);
+    };
+    scroller.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    // La sección actual siempre visible al aterrizar (centrada si toca).
+    const active = scroller.querySelector<HTMLElement>('[aria-current="page"]');
+    if (active) {
+      const target = active.offsetLeft - (scroller.clientWidth - active.clientWidth) / 2;
+      scroller.scrollLeft = Math.max(0, target);
+    }
+    update();
+  })();
 
   // ---- Onboarding (driver.js): botón ? y auto-tour la primera vez por rol.
   const role = document.querySelector('nav[data-role]')?.getAttribute('data-role') ?? 'admin';
