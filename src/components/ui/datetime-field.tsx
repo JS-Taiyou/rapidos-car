@@ -184,7 +184,11 @@ export function DateTimeField({ value, onChange, withTime = false, ariaLabel, cl
             // Blindar el picker: sin esto, un clic en él cuenta como "fuera"
             // para Radix Dialog y ABORTARÍA el modal que lo contiene.
             onPointerDown={(e) => e.stopPropagation()}
-            style={{ position: 'fixed', top: pos.top, left: pos.left, width: POPOVER_W }}
+            // pointerEvents auto: Radix Dialog modal pone body en
+            // pointer-events:none y sólo re-habilita sus propias capas;
+            // sin esto el popover (portal en body) hereda el none y sus
+            // botones se ven pero no reciben clicks.
+            style={{ position: 'fixed', top: pos.top, left: pos.left, width: POPOVER_W, pointerEvents: 'auto' }}
             className="z-[70] rounded-xl border bg-background p-3 shadow-lg"
             role="dialog"
             aria-label="Seleccionar fecha y hora"
