@@ -32,9 +32,10 @@ const links = [
 ---
 
 <nav class="border-b bg-background" data-role={role}>
-  <!-- max-w-7xl (no 6xl como el contenido): el nav usa TODO el ancho
-       disponible antes de pensar en scroll. -->
-  <div class="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:gap-4 sm:px-4">
+  <!-- Full-bleed (sin max-w como el contenido): con 11 secciones, hasta
+       1440px de contenedor se necesitan TODOS los px disponibles para que
+       Auditoría quepa sin scroll. -->
+  <div class="flex h-14 items-center gap-2 px-3 sm:gap-4 sm:px-4">
     <a href="/admin" class="flex shrink-0 items-center gap-2 font-bold">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2Z" class="fill-brand"></path>
@@ -57,7 +58,7 @@ const links = [
               <a
                 href={link.href}
                 class:list={[
-                  'block whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium sm:px-2.5 sm:text-sm xl:px-3',
+                  'block whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium sm:px-2.5 sm:text-sm',
                   current === link.href ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent',
                 ]}
                 aria-current={current === link.href ? 'page' : undefined}
@@ -79,7 +80,7 @@ const links = [
         aria-hidden="true"></span>
     </div>
 
-    <span class="hidden shrink-0 text-xs text-muted-foreground xl:inline" title="Rol de tu cuenta">
+    <span class="hidden shrink-0 text-xs text-muted-foreground 2xl:inline" title="Rol de tu cuenta">
       {ROLE_LABEL[role]}
     </span>
     <!-- Onboarding: relanza el tour de la pantalla actual (driver.js lazy). -->
