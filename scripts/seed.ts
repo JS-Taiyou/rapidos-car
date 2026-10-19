@@ -167,19 +167,24 @@ try {
     `;
     console.log(`settings: ${settings.length} insertados`);
 
-    // Puntos de entrega específicos (catálogo vivo de /admin/puntos; el
-    // aeropuerto llega por la migración 005 y aquí sólo se le pintan
-    // coordenadas si faltan). Tarifas coherentes con las zonas base.
+    // Puntos de entrega — catálogo COMPLETO (catálogo vivo de /admin/puntos).
+    // La migración 005 importa las zonas desde settings.delivery_zones, pero
+    // en una base fresca las migraciones corren ANTES de que exista ese
+    // setting y el import no encuentra nada (el select público queda vacío);
+    // el seed es quien garantiza el catálogo base. Idempotente.
     const points = await tx`
       INSERT INTO pickup_points (key, name, fee_cents, lat, lng, sort_order)
       VALUES
-        ('altabrisa',    'Plaza Altabrisa',     18000, 20.9980, -89.6174, 5),
-        ('chapur',       'Plaza Chapur',        15000, 20.9741, -89.6249, 6),
-        ('hyatt_merida', 'Hyatt Regency Mérida', 20000, 21.0536, -89.6215, 7)
+        ('airport_mid',  'Aeropuerto Internacional de Mérida', 0,     20.9370, -89.6579, 1),
+        ('centro',       'Centro de Mérida',                   15000, NULL,    NULL,     2),
+        ('norte',        'Zona norte',                         20000, NULL,    NULL,     3),
+        ('hotel_zone',   'Zona hotelera',                      25000, NULL,    NULL,     4),
+        ('altabrisa',    'Plaza Altabrisa',                    18000, 20.9980, -89.6174, 5),
+        ('chapur',       'Plaza Chapur',                       15000, 20.9741, -89.6249, 6),
+        ('hyatt_merida', 'Hyatt Regency Mérida',               20000, 21.0536, -89.6215, 7)
       ON CONFLICT (key) DO NOTHING
       RETURNING id
     `;
-    await tx`UPDATE pickup_points SET lat = 20.9370, lng = -89.6579 WHERE key = 'airport_mid' AND lat IS NULL`;
     console.log(`pickup_points: ${points.length} insertados`);
 
     // CAMBIA ESTA PASSWORD EN EL PRIMER USO Y NUNCA COMMITEES LA REAL.
