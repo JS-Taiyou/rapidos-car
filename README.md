@@ -177,4 +177,14 @@ patio funcionan por ser un proceso persistente. Ver §8 de la arquitectura.
 
 ---
 
+## Licencia
+
+[Apache License 2.0](LICENSE) — usa, modifica y distribuye (tus cambios
+pueden quedarse privados); incluye concesión de patentes y cláusula de
+terminación por litigio de patentes.
+
+Copyright 2026 Jorge Solís
+
+---
+
 Hecho con 💚 por [Jorge Solís](https://github.com/JS-Taiyou).
