@@ -36,8 +36,14 @@ export default function QuoteWidget({ lang, zones }: Props) {
   const [end, setEnd] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const zoneLabel = (z: { zone: string; name?: string }) =>
-    z.name ?? t(`quote.zones.${z.zone}`);
+  // Traducción si existe en el diccionario (zone base tienen ES y EN); si
+  // no (punto creado desde /admin/puntos), el nombre de la BD. t() devuelve
+  // la clave cruda cuando falta — eso es lo que se detecta aquí.
+  const zoneLabel = (z: { zone: string; name?: string }) => {
+    const key = `quote.zones.${z.zone}`;
+    const tr = t(key);
+    return tr !== key ? tr : (z.name ?? z.zone);
+  };
   const zoneTouched = (z: { zone: string; feeCents: number }) => {
     if (pickupZone && z.zone === pickupZone && returnZone && z.zone !== returnZone) return true;
     if (returnZone && z.zone === returnZone && pickupZone && z.zone !== pickupZone) return true;
@@ -85,7 +91,7 @@ export default function QuoteWidget({ lang, zones }: Props) {
             <SelectContent>
               {zones.map((z) => (
                 <SelectItem key={z.zone} value={z.zone}>
-                  {t(`quote.zones.${z.zone}`)}
+                  {zoneLabel(z)}
                   {z.feeCents > 0 ? ` (+${feeFmt.format(z.feeCents / 100)})` : ''}
                 </SelectItem>
               ))}

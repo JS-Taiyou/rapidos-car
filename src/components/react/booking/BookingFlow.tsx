@@ -216,7 +216,13 @@ function RangeStep({ lang, zones, state }: { lang: Lang; zones: Props['zones']; 
   const [zone, setZone] = useState(state.pickupZone);
   const [returnZoneState, setReturnZoneState] = useState(state.returnZone || state.pickupZone);
   const [error, setError] = useState<string | null>(null);
-  const zoneLabel = (z: { zone: string; name?: string }) => z.name ?? t(`quote.zones.${z.zone}`);
+  // Traducción si existe (zonas base), nombre de la BD si no (puntos creados
+  // desde /admin/puntos): t() devuelve la clave cruda cuando falta.
+  const zoneLabel = (z: { zone: string; name?: string }) => {
+    const key = `quote.zones.${z.zone}`;
+    const tr = t(key);
+    return tr !== key ? tr : (z.name ?? z.zone);
+  };
 
   function submit() {
     if (!pickDate || !returnDate || !zone) {
